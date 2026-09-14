@@ -1,0 +1,6 @@
+{
+  "name": "Poupagaio",
+  "description": "Controle financeiro pessoal, de casais e famílias. Organize hoje. Voe mais longe.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

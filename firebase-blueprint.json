@@ -1,0 +1,305 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profile",
+      "description": "User profile and personal settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user identifier" },
+        "name": { "type": "string", "description": "User full name" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "avatar_url": { "type": "string", "description": "User avatar photo URL" },
+        "usage_type": { "type": "string", "enum": ["individual", "shared"], "description": "Individual or shared usage mode" },
+        "created_at": { "type": "string", "description": "Account creation timestamp" }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "spaces": {
+      "title": "Financial Space",
+      "description": "Individual or shared family workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Space unique ID" },
+        "name": { "type": "string", "description": "Space display name" },
+        "is_shared": { "type": "boolean", "description": "Whether space is shared" },
+        "invite_code": { "type": "string", "description": "Sharing invite code" },
+        "created_by": { "type": "string", "description": "User ID who created the space" },
+        "members": { "type": "array", "description": "List of member user IDs" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "name", "is_shared", "created_by"]
+    },
+    "categories": {
+      "title": "Category",
+      "description": "Expense and income categories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Category unique ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "name": { "type": "string", "description": "Category name" },
+        "type": { "type": "string", "enum": ["income", "expense"], "description": "Category type" },
+        "icon": { "type": "string", "description": "Icon identifier" },
+        "color": { "type": "string", "description": "Hex color code" },
+        "is_default": { "type": "boolean", "description": "Default category indicator" }
+      },
+      "required": ["id", "space_id", "name", "type", "color"]
+    },
+    "transactions": {
+      "title": "Transaction",
+      "description": "Incomes and expenses recorded in space",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Transaction unique ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "user_id": { "type": "string", "description": "Responsible user ID" },
+        "description": { "type": "string", "description": "Transaction title or description" },
+        "amount": { "type": "number", "description": "Transaction amount" },
+        "type": { "type": "string", "enum": ["income", "expense_fixed", "expense_variable"], "description": "Type of transaction" },
+        "category_id": { "type": "string", "description": "Category ID" },
+        "due_date": { "type": "string", "description": "Due date (YYYY-MM-DD)" },
+        "payment_date": { "type": "string", "description": "Payment date if paid (YYYY-MM-DD)" },
+        "status": { "type": "string", "enum": ["pending", "paid", "cancelled"], "description": "Payment status" },
+        "reference_month": { "type": "string", "description": "Reference month (YYYY-MM)" },
+        "notes": { "type": "string", "description": "Additional notes" },
+        "created_by": { "type": "string", "description": "Creator user ID" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "space_id", "description", "amount", "type", "category_id", "due_date", "status", "reference_month"]
+    },
+    "installment_purchases": {
+      "title": "Installment Purchase",
+      "description": "Credit card and installment purchase contracts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Purchase unique ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "user_id": { "type": "string", "description": "Responsible user ID" },
+        "description": { "type": "string", "description": "Purchase description" },
+        "total_amount": { "type": "number", "description": "Total amount" },
+        "category_id": { "type": "string", "description": "Category ID" },
+        "installments_count": { "type": "number", "description": "Total installments count" },
+        "first_due_date": { "type": "string", "description": "First due date" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "space_id", "description", "total_amount", "installments_count"]
+    },
+    "installments": {
+      "title": "Installment Item",
+      "description": "Individual monthly installment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Installment unique ID" },
+        "purchase_id": { "type": "string", "description": "Parent purchase ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "user_id": { "type": "string", "description": "Responsible user ID" },
+        "installment_number": { "type": "number", "description": "Installment sequence number" },
+        "total_installments": { "type": "number", "description": "Total installments in purchase" },
+        "amount": { "type": "number", "description": "Amount of this installment" },
+        "due_date": { "type": "string", "description": "Due date" },
+        "payment_date": { "type": "string", "description": "Payment date if paid" },
+        "status": { "type": "string", "enum": ["pending", "paid", "anticipated"], "description": "Installment status" },
+        "reference_month": { "type": "string", "description": "Reference month (YYYY-MM)" }
+      },
+      "required": ["id", "purchase_id", "space_id", "installment_number", "total_installments", "amount", "due_date", "status", "reference_month"]
+    },
+    "investments": {
+      "title": "Investment",
+      "description": "Investment positions and assets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Investment unique ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "name": { "type": "string", "description": "Asset name" },
+        "type": { "type": "string", "description": "Investment type (CDB, Tesouro, Ações, FIIs, etc.)" },
+        "institution": { "type": "string", "description": "Financial institution or broker" },
+        "initial_amount": { "type": "number", "description": "Initial invested amount" },
+        "current_amount": { "type": "number", "description": "Current asset value" },
+        "application_date": { "type": "string", "description": "Date of investment" },
+        "estimated_yield": { "type": "number", "description": "Estimated annual yield" },
+        "notes": { "type": "string", "description": "Observations" },
+        "responsible_user_id": { "type": "string", "description": "Owner user ID" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "space_id", "name", "type", "institution", "initial_amount", "current_amount"]
+    },
+    "goals": {
+      "title": "Savings Goal",
+      "description": "Savings piggybanks and long-term financial targets",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Goal unique ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "name": { "type": "string", "description": "Goal name" },
+        "target_amount": { "type": "number", "description": "Target amount to save" },
+        "saved_amount": { "type": "number", "description": "Currently saved amount" },
+        "deadline": { "type": "string", "description": "Target completion date" },
+        "category": { "type": "string", "description": "Category or label" },
+        "color": { "type": "string", "description": "Hex theme color" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"], "description": "Priority" },
+        "status": { "type": "string", "enum": ["active", "paused", "completed", "cancelled"], "description": "Goal status" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "space_id", "name", "target_amount", "saved_amount", "status"]
+    },
+    "goal_movements": {
+      "title": "Goal Movement",
+      "description": "Deposits and withdrawals into savings goals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Movement unique ID" },
+        "goal_id": { "type": "string", "description": "Goal ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "user_id": { "type": "string", "description": "User ID" },
+        "type": { "type": "string", "enum": ["deposit", "withdraw"], "description": "Deposit or withdrawal" },
+        "amount": { "type": "number", "description": "Movement amount" },
+        "date": { "type": "string", "description": "Date of movement" },
+        "notes": { "type": "string", "description": "Deposit note" },
+        "reason": { "type": "string", "description": "Withdrawal justification" }
+      },
+      "required": ["id", "goal_id", "space_id", "type", "amount", "date"]
+    },
+    "wishlist": {
+      "title": "Wishlist Item",
+      "description": "Anti-impulse cooling off wishlist items",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Wishlist item ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "user_id": { "type": "string", "description": "Responsible user ID" },
+        "name": { "type": "string", "description": "Item name" },
+        "description": { "type": "string", "description": "Description or motivation" },
+        "estimated_amount": { "type": "number", "description": "Estimated cost" },
+        "category_id": { "type": "string", "description": "Associated category ID" },
+        "priority": { "type": "string", "enum": ["low", "medium", "high"], "description": "Priority" },
+        "status": { "type": "string", "enum": ["cooling_off", "ready_to_buy", "bought", "given_up"], "description": "Item status" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "space_id", "name", "estimated_amount", "status"]
+    },
+    "monthly_plans": {
+      "title": "Monthly Plan",
+      "description": "Monthly income target, spending limit, and budget caps",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Plan unique ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "reference_month": { "type": "string", "description": "Target month (YYYY-MM)" },
+        "expected_income": { "type": "number", "description": "Expected income" },
+        "spending_limit": { "type": "number", "description": "Global expense limit" },
+        "target_to_save": { "type": "number", "description": "Savings target" },
+        "target_to_invest": { "type": "number", "description": "Investment target" },
+        "category_budgets": { "type": "object", "description": "Budget limits mapped by category ID" }
+      },
+      "required": ["id", "space_id", "reference_month"]
+    },
+    "monthly_closings": {
+      "title": "Monthly Closing",
+      "description": "Historical end-of-month financial closing report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Closing record ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "reference_month": { "type": "string", "description": "Closed month (YYYY-MM)" },
+        "closed_at": { "type": "string", "description": "Closing timestamp" },
+        "closed_by_user_id": { "type": "string", "description": "User who closed the month" },
+        "total_income": { "type": "number", "description": "Actual total income" },
+        "total_expenses": { "type": "number", "description": "Actual total expenses" },
+        "final_balance": { "type": "number", "description": "Liquid final balance" },
+        "classification": { "type": "string", "description": "Classification result" },
+        "destination_preference": { "type": "string", "description": "Allocated destination for leftover funds" }
+      },
+      "required": ["id", "space_id", "reference_month", "closed_at", "final_balance"]
+    },
+    "notifications": {
+      "title": "Notification",
+      "description": "In-app alerts and notifications",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Notification ID" },
+        "space_id": { "type": "string", "description": "Target space ID" },
+        "user_id": { "type": "string", "description": "Recipient user ID" },
+        "title": { "type": "string", "description": "Notification title" },
+        "message": { "type": "string", "description": "Notification body message" },
+        "type": { "type": "string", "description": "Type: info, warning, success, alert" },
+        "is_read": { "type": "boolean", "description": "Read status" },
+        "created_at": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "space_id", "title", "message", "type", "is_read"]
+    },
+    "audit_logs": {
+      "title": "Audit Log",
+      "description": "Transparency and activity audit log for shared accountability",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Audit log unique ID" },
+        "space_id": { "type": "string", "description": "Parent space ID" },
+        "user_id": { "type": "string", "description": "User ID who performed the action" },
+        "user_name": { "type": "string", "description": "User name" },
+        "action": { "type": "string", "description": "Action performed" },
+        "entity_type": { "type": "string", "description": "Target entity type" },
+        "entity_id": { "type": "string", "description": "Target entity ID" },
+        "details": { "type": "string", "description": "Action description/details" },
+        "created_at": { "type": "string", "description": "Timestamp" }
+      },
+      "required": ["id", "space_id", "user_id", "action", "created_at"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User profile information"
+    },
+    "/spaces/{spaceId}": {
+      "schema": "spaces",
+      "description": "Financial workspaces"
+    },
+    "/categories/{categoryId}": {
+      "schema": "categories",
+      "description": "Financial categories"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "transactions",
+      "description": "Financial transactions and bills"
+    },
+    "/installment_purchases/{purchaseId}": {
+      "schema": "installment_purchases",
+      "description": "Credit card and installment purchases"
+    },
+    "/installments/{installmentId}": {
+      "schema": "installments",
+      "description": "Individual monthly installments"
+    },
+    "/investments/{investmentId}": {
+      "schema": "investments",
+      "description": "Investments and assets"
+    },
+    "/goals/{goalId}": {
+      "schema": "goals",
+      "description": "Savings goals and piggybanks"
+    },
+    "/goal_movements/{movementId}": {
+      "schema": "goal_movements",
+      "description": "Goal deposits and withdrawals"
+    },
+    "/wishlist/{wishlistId}": {
+      "schema": "wishlist",
+      "description": "Anti-impulse wishlist items"
+    },
+    "/monthly_plans/{planId}": {
+      "schema": "monthly_plans",
+      "description": "Monthly budgets and plans"
+    },
+    "/monthly_closings/{closingId}": {
+      "schema": "monthly_closings",
+      "description": "Closed months records"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "notifications",
+      "description": "User and space notifications"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "audit_logs",
+      "description": "Space audit logs"
+    }
+  }
+}

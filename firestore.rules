@@ -1,0 +1,87 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Health check / connection test
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // User Profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+
+    // Financial Workspaces
+    match /spaces/{spaceId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Categories
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Transactions
+    match /transactions/{transactionId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Installment Purchases & Installments
+    match /installment_purchases/{purchaseId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /installments/{installmentId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Investments
+    match /investments/{investmentId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Goals & Movements
+    match /goals/{goalId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /goal_movements/{movementId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Wishlist
+    match /wishlist/{wishlistId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Monthly Plans & Closings
+    match /monthly_plans/{planId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /monthly_closings/{closingId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Notifications & Audit Logs
+    match /notifications/{notificationId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /audit_logs/{logId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

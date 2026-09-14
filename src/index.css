@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --poupagaio-green: #22c55e;
+    --poupagaio-green-dark: #14532d;
+    --poupagaio-green-deep: #0d3b22;
+    --poupagaio-green-light: #dcfce7;
+    --poupagaio-cyan: #06b6d4;
+    --poupagaio-gold: #f4b942;
+    --poupagaio-bg: #f6faf7;
+    --poupagaio-white: #ffffff;
+    --poupagaio-graphite: #18201b;
+    --poupagaio-gray: #68736c;
+    --poupagaio-border: #dde8e0;
+
+    --income-color: #22c55e;
+    --expense-color: #ef5350;
+    --investment-color: #06b6d4;
+    --goal-color: #f4b942;
+    --installment-color: #f59e0b;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--poupagaio-bg);
+    color: var(--poupagaio-graphite);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
