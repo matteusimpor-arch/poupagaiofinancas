@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { Mail, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Mail, ArrowRight, AlertCircle, RefreshCw } from 'lucide-react';
 import { PoupagaioLogo } from '../common/PoupagaioLogo';
+import { useFinance } from '../../context/FinanceContext';
 import {
-  checkLoginAttempts,
   isValidEmailFormat,
   signInPasswordless,
+  verifyOtpCode,
+  checkLoginAttempts,
+  recordFailedLoginAttempt,
 } from '../../lib/supabase';
 
 interface LoginScreenProps {
@@ -12,13 +15,18 @@ interface LoginScreenProps {
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) => {
+  const { login } = useFinance();
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSent, setIsSent] = useState(false);
+  const [isOtpSent, setIsOtpSent] = useState(false);
   const [cooldown, setCooldown] = useState(0);
 
-  React.useEffect(() => {
+  // Estados do OTP de 6 dígitos
+  const [otpValues, setOtpValues] = useState<string[]>(Array(6).fill(''));
+  const otpRefs = useRef<HTMLInputElement[]>([]);
+
+  useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setTimeout(() => {
       setCooldown((prev) => prev - 1);
@@ -26,8 +34,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleRequestOtp = async (e: React.FormEvent) => {
+    if (e) e.preventDefault();
     setError(null);
 
     const targetEmail = email.trim().toLowerCase();
@@ -45,7 +53,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
     // Verificação de bloqueio por excesso de tentativas (Seção 2)
     const attemptCheck = checkLoginAttempts(targetEmail);
     if (attemptCheck.isBlocked) {
-      setError('Muitas tentativas. Aguarde alguns minutos e tente novamente.');
+      setError(`Muitas tentativas. Aguarde ${attemptCheck.remainingMinutes || 10} minutos.`);
       return;
     }
 
@@ -54,20 +62,114 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
       const res = await signInPasswordless(targetEmail);
 
       if (!res.success) {
-        setError(res.error || 'Não foi possível enviar o e-mail de acesso.');
+        setError(res.error || 'Não foi possível enviar o código de acesso. Verifique se o e-mail está cadastrado.');
         setIsLoading(false);
         return;
       }
 
-      setIsSent(true);
+      setIsOtpSent(true);
       setCooldown(60);
+      setOtpValues(Array(6).fill(''));
+      // Foca no primeiro campo de OTP após renderização
+      setTimeout(() => {
+        otpRefs.current[0]?.focus();
+      }, 100);
     } catch (err) {
-      // Mensagem neutra em caso de exceção de segurança (Seção 22)
-      setIsSent(true);
+      setIsOtpSent(true);
       setCooldown(60);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleOtpChange = (index: number, value: string) => {
+    const valClean = value.replace(/\D/g, ''); // Apenas números
+    if (!valClean) {
+      const newOtpValues = [...otpValues];
+      newOtpValues[index] = '';
+      setOtpValues(newOtpValues);
+      return;
+    }
+
+    // Pega o último caractere digitado
+    const digit = valClean.substring(valClean.length - 1);
+
+    const newOtpValues = [...otpValues];
+    newOtpValues[index] = digit;
+    setOtpValues(newOtpValues);
+
+    // Mover foco para o próximo campo
+    if (index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!otpValues[index] && index > 0) {
+        // Se estiver vazio, foca no campo anterior e apaga
+        const newOtpValues = [...otpValues];
+        newOtpValues[index - 1] = '';
+        setOtpValues(newOtpValues);
+        otpRefs.current[index - 1]?.focus();
+      } else {
+        const newOtpValues = [...otpValues];
+        newOtpValues[index] = '';
+        setOtpValues(newOtpValues);
+      }
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text').trim().replace(/\D/g, '');
+    if (pastedText.length >= 6) {
+      const digits = pastedText.substring(0, 6).split('');
+      setOtpValues(digits);
+      otpRefs.current[5]?.focus();
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const code = otpValues.join('');
+    if (code.length < 6) {
+      setError('Por favor, informe o código de 6 dígitos completo.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const verifyRes = await verifyOtpCode(email.trim().toLowerCase(), code, false);
+
+      if (!verifyRes.success) {
+        recordFailedLoginAttempt(email.trim().toLowerCase());
+        setError(verifyRes.error || 'Código incorreto ou expirado.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Login bem-sucedido: conecta na carteira de finanças do contexto local
+      const isLogged = await login(email.trim().toLowerCase(), '', verifyRes.user);
+      if (!isLogged) {
+        setError('Erro ao sincronizar perfil de usuário.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Ocorreu um erro ao verificar o código.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const maskEmail = (emailStr: string): string => {
+    const [local, domain] = emailStr.split('@');
+    if (!local || !domain) return emailStr;
+    if (local.length <= 2) {
+      return `${local.charAt(0)}***@${domain}`;
+    }
+    return `${local.charAt(0)}***${local.charAt(local.length - 1)}@${domain}`;
   };
 
   return (
@@ -84,27 +186,79 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
           </p>
         </div>
 
-        {isSent ? (
-          <div className="space-y-4 text-center">
-            <div className="mx-auto w-12 h-12 bg-emerald-50 text-[#22C55E] rounded-full flex items-center justify-center border border-[#22C55E]/30 shadow-xs">
-              <CheckCircle2 size={24} />
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-base font-bold text-[#0D3B22]">Link de acesso enviado!</h3>
+        {isOtpSent ? (
+          <div className="space-y-6">
+            <div className="space-y-2 text-center">
+              <h3 className="text-lg font-bold text-[#0D3B22]">Confira seu e-mail</h3>
               <p className="text-xs text-[#68736C] leading-relaxed">
-                Enviamos um link de login para <span className="font-semibold text-[#0D3B22]">{email}</span>. Acesse seu e-mail e clique no botão para entrar.
+                Enviamos um código de 6 dígitos para: <br />
+                <span className="font-bold text-[#0D3B22] text-sm">{maskEmail(email)}</span>
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setIsSent(false);
-                setEmail('');
-              }}
-              className="text-xs font-bold text-[#22C55E] hover:underline"
-            >
-              Voltar para Entrar
-            </button>
+
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
+                <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleVerifyOtp} className="space-y-6">
+              {/* Entradas OTP de 6 dígitos */}
+              <div className="flex justify-between gap-2 max-w-xs mx-auto">
+                {otpValues.map((val, idx) => (
+                  <input
+                    key={idx}
+                    ref={(el) => (otpRefs.current[idx] = el as HTMLInputElement)}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={val}
+                    onChange={(e) => handleOtpChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(idx, e)}
+                    onPaste={idx === 0 ? handlePaste : undefined}
+                    className="w-12 h-14 text-center text-xl font-bold rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] focus:ring-2 focus:ring-[#22C55E] focus:outline-none transition-all"
+                  />
+                ))}
+              </div>
+
+              {/* Botão de Confirmação */}
+              <button
+                type="submit"
+                id="btn-verify-otp"
+                disabled={isLoading || otpValues.some((v) => !v)}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <span>{isLoading ? 'Confirmando...' : 'Confirmar e entrar'}</span>
+                <ArrowRight size={17} />
+              </button>
+            </form>
+
+            <div className="flex flex-col items-center gap-3 pt-2 text-center">
+              <span className="text-xs text-[#68736C]">Não recebeu o código?</span>
+              <button
+                type="button"
+                disabled={cooldown > 0 || isLoading}
+                onClick={handleRequestOtp}
+                className="flex items-center gap-1.5 text-xs font-bold text-[#22C55E] hover:text-[#16a34a] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+                <span>
+                  {cooldown > 0 ? `Reenviar código em ${cooldown}s` : 'Reenviar código'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsOtpSent(false);
+                  setError(null);
+                }}
+                className="text-xs font-bold text-[#68736C] hover:text-[#18201B] hover:underline pt-2"
+              >
+                Alterar e-mail de acesso
+              </button>
+            </div>
           </div>
         ) : (
           <>
@@ -127,6 +281,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
               </button>
             </div>
 
+            <div className="space-y-1 text-center">
+              <h3 className="text-lg font-bold text-[#0D3B22]">Bem-vindo de volta</h3>
+              <p className="text-xs text-[#68736C]">Insira seu e-mail para receber seu código de acesso</p>
+            </div>
+
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
                 <AlertCircle size={16} className="shrink-0 mt-0.5" />
@@ -134,7 +293,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleRequestOtp} className="space-y-5">
               {/* E-mail */}
               <div>
                 <label
@@ -173,7 +332,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
                     ? 'Enviando...'
                     : cooldown > 0
                     ? `Aguarde ${cooldown}s`
-                    : 'Entrar sem Senha'}
+                    : 'Receber código'}
                 </span>
                 <ArrowRight size={17} />
               </button>

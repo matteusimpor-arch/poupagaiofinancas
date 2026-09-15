@@ -549,47 +549,30 @@ export function normalizePhoneNumber(phone: string): string {
  * Realiza o cadastro sem senha (Passwordless OTP / Magic Link) via Supabase Auth (Seção 4)
  */
 export async function signUpPasswordless(params: {
-  firstName: string;
-  lastName: string;
+  name: string;
   email: string;
-  phone: string;
 }): Promise<{
   success: boolean;
   error?: string;
 }> {
-  const { firstName, lastName, email, phone } = params;
+  const { name, email } = params;
   const normalizedEmail = email.trim().toLowerCase();
 
-  if (!firstName.trim()) {
+  if (!name.trim()) {
     return { success: false, error: 'O nome é obrigatório.' };
-  }
-  if (!lastName.trim()) {
-    return { success: false, error: 'O sobrenome é obrigatório.' };
   }
   if (!isValidEmailFormat(normalizedEmail)) {
     return { success: false, error: 'Formato de e-mail inválido.' };
   }
 
-  const normalizedPhone = normalizePhoneNumber(phone);
-
   if (supabase) {
     try {
-      const officialRedirectUrl = 'https://poupagaiofinancas.vercel.app/auth/callback';
-      const isLocalhost =
-        typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      const redirectUrl = isLocalhost ? `${window.location.origin}/auth/callback` : officialRedirectUrl;
-
       const { error } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
           shouldCreateUser: true,
-          emailRedirectTo: redirectUrl,
           data: {
-            first_name: firstName.trim(),
-            last_name: lastName.trim(),
-            full_name: `${firstName.trim()} ${lastName.trim()}`,
-            phone: normalizedPhone,
+            full_name: name.trim(),
           },
         },
       });
@@ -612,10 +595,7 @@ export async function signUpPasswordless(params: {
   simulatedUsers[normalizedEmail] = {
     id: 'user-' + Date.now(),
     email: normalizedEmail,
-    first_name: firstName.trim(),
-    last_name: lastName.trim(),
-    full_name: `${firstName.trim()} ${lastName.trim()}`,
-    phone: normalizedPhone,
+    full_name: name.trim(),
     email_confirmed: true,
     created_at: new Date().toISOString(),
   };
@@ -625,7 +605,7 @@ export async function signUpPasswordless(params: {
 }
 
 /**
- * Realiza o login sem senha (Passwordless OTP / Magic Link) via Supabase Auth (Seção 10)
+ * Realiza o login sem senha (Passwordless OTP / Código de 6 Dígitos) via Supabase Auth
  */
 export async function signInPasswordless(email: string): Promise<{
   success: boolean;
@@ -639,25 +619,18 @@ export async function signInPasswordless(email: string): Promise<{
 
   if (supabase) {
     try {
-      const officialRedirectUrl = 'https://poupagaiofinancas.vercel.app/auth/callback';
-      const isLocalhost =
-        typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      const redirectUrl = isLocalhost ? `${window.location.origin}/auth/callback` : officialRedirectUrl;
-
       const { error } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
           shouldCreateUser: false, // Só faz login se já existir
-          emailRedirectTo: redirectUrl,
         },
       });
 
       if (error) {
         console.error('[Supabase Auth SignInPasswordless Error]', error);
-        // Proteção contra enumeração de usuários (Seção 22)
-        if (error.message.includes('signup') || error.message.includes('not found') || error.status === 400) {
-          return { success: true };
+        const lowerMsg = error.message.toLowerCase();
+        if (lowerMsg.includes('signup') || lowerMsg.includes('not allowed')) {
+          return { success: false, error: 'Este e-mail não está cadastrado. Por favor, crie uma conta primeiro.' };
         }
         return { success: false, error: error.message };
       }
@@ -665,19 +638,85 @@ export async function signInPasswordless(email: string): Promise<{
       return { success: true };
     } catch (err: any) {
       console.error('[Supabase Auth SignInPasswordless Exception]', err);
-      return { success: false, error: err.message || 'Erro ao enviar e-mail de acesso.' };
+      return { success: false, error: err.message || 'Erro ao enviar o código de acesso.' };
     }
   }
 
   // Simulação offline/local caso Supabase não esteja configurado
-  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
-  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
-  if (!simulatedUsers[normalizedEmail]) {
-    if (normalizedEmail !== 'mateus@email.com' && normalizedEmail !== 'luana@email.com') {
-      return { success: true };
+  return { success: true };
+}
+
+/**
+ * Verifica o código OTP (token de 6 dígitos) recebido no e-mail
+ */
+export async function verifyOtpCode(
+  email: string,
+  token: string,
+  isRegister: boolean
+): Promise<{
+  success: boolean;
+  error?: string;
+  user?: User | null;
+  session?: any;
+}> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const tokenClean = token.trim();
+
+  if (supabase) {
+    try {
+      // Tenta primeiro com o tipo apropriado
+      const primaryType = isRegister ? 'signup' : 'email';
+      const secondaryType = isRegister ? 'email' : 'signup';
+
+      let { data, error } = await supabase.auth.verifyOtp({
+        email: normalizedEmail,
+        token: tokenClean,
+        type: primaryType as any,
+      });
+
+      if (error) {
+        console.warn(`[Supabase OTP Verification] Failed with type ${primaryType}, trying ${secondaryType}...`, error);
+        const fallbackRes = await supabase.auth.verifyOtp({
+          email: normalizedEmail,
+          token: tokenClean,
+          type: secondaryType as any,
+        });
+
+        if (fallbackRes.error) {
+          console.error('[Supabase OTP Verification Exception]', fallbackRes.error);
+          return { success: false, error: fallbackRes.error.message };
+        }
+
+        data = fallbackRes.data;
+      }
+
+      return { success: true, user: data.user, session: data.session };
+    } catch (err: any) {
+      console.error('[Supabase OTP Verification Exception]', err);
+      return { success: false, error: err.message || 'Erro ao verificar o código.' };
     }
   }
 
-  return { success: true };
+  // Simulação offline/local
+  const rawSim = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
+  const users = rawSim ? JSON.parse(rawSim) : {};
+  let targetSimUser = users[normalizedEmail];
+
+  if (!targetSimUser) {
+    targetSimUser = {
+      id: isRegister ? 'user-' + Date.now() : 'user-mateus-01',
+      email: normalizedEmail,
+      full_name: normalizedEmail.split('@')[0],
+      email_confirmed: true,
+      created_at: new Date().toISOString(),
+    };
+    users[normalizedEmail] = targetSimUser;
+    localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(users));
+  }
+
+  return {
+    success: true,
+    user: targetSimUser,
+  };
 }
 

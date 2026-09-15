@@ -755,7 +755,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const login = async (email: string, pass: string, authenticatedUser?: any): Promise<boolean> => {
-    if (pass.length < 8) return false;
     const normalizedEmail = email.trim().toLowerCase();
 
     // 1. Se um usuário do Supabase Auth / Local já foi autenticado e passado
@@ -776,6 +775,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       saveToFirestore('users', profile.id, profile);
       return true;
     }
+
+    if (pass && pass.length < 8) return false;
 
     // 2. Se o Supabase Auth está ativo, efetua a autenticação direta
     if (supabase) {
@@ -855,7 +856,8 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     phone?: string,
     authenticatedUser?: any
   ): Promise<boolean> => {
-    if (!name.trim() || !email.trim() || pass.length < 8) return false;
+    if (!name.trim() || !email.trim()) return false;
+    if (!authenticatedUser && pass && pass.length < 8) return false;
     const normalizedEmail = email.trim().toLowerCase();
 
     let newUserId = authenticatedUser?.id;
