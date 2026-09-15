@@ -19,11 +19,6 @@ export async function saveToFirestore<T extends Record<string, any>>(
   id: string,
   data: T
 ): Promise<void> {
-  // Apenas salva no Firestore se o usuário estiver autenticado no Firebase
-  if (!auth.currentUser) {
-    return;
-  }
-
   const path = `${collectionName}/${id}`;
   try {
     // Sanitização de campos undefined que o Firestore rejeita
@@ -33,11 +28,6 @@ export async function saveToFirestore<T extends Record<string, any>>(
     await setDoc(doc(db, collectionName, id), cleanData, { merge: true });
   } catch (error) {
     console.warn(`[Firestore] Erro ao salvar em ${path}:`, error);
-    try {
-      handleFirestoreError(error, OperationType.WRITE, path);
-    } catch (e) {
-      // Log do erro formatado
-    }
   }
 }
 
@@ -45,20 +35,50 @@ export async function saveToFirestore<T extends Record<string, any>>(
  * Remove um documento do Firestore
  */
 export async function deleteFromFirestore(collectionName: string, id: string): Promise<void> {
-  if (!auth.currentUser) {
-    return;
-  }
-
   const path = `${collectionName}/${id}`;
   try {
     await deleteDoc(doc(db, collectionName, id));
   } catch (error) {
     console.warn(`[Firestore] Erro ao remover de ${path}:`, error);
-    try {
-      handleFirestoreError(error, OperationType.DELETE, path);
-    } catch (e) {
-      // Log do erro formatado
-    }
+  }
+}
+
+/**
+ * Salva todo o conjunto de dados do usuário no Firestore para sincronização entre múltiplos dispositivos
+ */
+export async function saveUserDataToCloud(userId: string, data: any): Promise<void> {
+  if (!userId) return;
+  try {
+    const cleanData = JSON.parse(JSON.stringify(data));
+    await setDoc(doc(db, 'user_app_data', userId), cleanData, { merge: true });
+  } catch (error) {
+    console.warn(`[Firestore] Erro ao salvar sincronização de dados do usuário ${userId}:`, error);
+  }
+}
+
+/**
+ * Escuta em tempo real alterações nos dados do usuário no Firestore
+ */
+export function subscribeToUserDataCloud(
+  userId: string,
+  onUpdate: (data: any) => void
+): Unsubscribe {
+  if (!userId) return () => {};
+  try {
+    return onSnapshot(
+      doc(db, 'user_app_data', userId),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          onUpdate(docSnap.data());
+        }
+      },
+      (error) => {
+        console.warn(`[Firestore] Erro no listener de sincronização do usuário ${userId}:`, error);
+      }
+    );
+  } catch (error) {
+    console.warn(`[Firestore] Falha ao registrar listener do usuário ${userId}:`, error);
+    return () => {};
   }
 }
 

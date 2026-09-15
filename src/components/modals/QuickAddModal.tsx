@@ -8,6 +8,7 @@ import {
   PiggyBank,
   Target,
   Heart,
+  ShoppingCart,
 } from 'lucide-react';
 
 interface QuickAddModalProps {
@@ -22,6 +23,7 @@ interface QuickAddModalProps {
       | 'investment'
       | 'goal'
       | 'wishlist'
+      | 'market_list'
   ) => void;
   onSelectType?: (
     type:
@@ -32,6 +34,7 @@ interface QuickAddModalProps {
       | 'investment'
       | 'goal'
       | 'wishlist'
+      | 'market_list'
   ) => void;
 }
 
@@ -89,6 +92,13 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       color: 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100',
     },
     {
+      type: 'market_list' as const,
+      label: 'Lista de Mercado',
+      description: 'Crie ou gerencie suas listas de supermercado',
+      icon: ShoppingCart,
+      color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+    },
+    {
       type: 'wishlist' as const,
       label: 'Lista de Desejos',
       description: 'Itens que você quer comprar sem pressa',
@@ -112,7 +122,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img
-              src="/logo-poupagaio.png"
+              src="/logo-poupagaio-principal.png"
               alt="Poupagaio"
               referrerPolicy="no-referrer"
               className="w-8 h-8 object-contain"
