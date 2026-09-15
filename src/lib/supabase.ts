@@ -1,8 +1,8 @@
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
-// Variáveis de ambiente Vite
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Variáveis de ambiente exclusivamente Vite
+export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
@@ -251,12 +251,21 @@ export async function sendPasswordResetEmail(email: string): Promise<{ success: 
 
   if (supabase) {
     try {
-      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/#reset-password` : undefined;
-      await supabase.auth.resetPasswordForEmail(email.trim(), {
+      const officialRedirectUrl = 'https://poupagaiofinancas.vercel.app/redefinir-senha';
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const redirectUrl = isLocalhost ? `${window.location.origin}/redefinir-senha` : officialRedirectUrl;
+
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: redirectUrl,
       });
+      if (error) {
+        console.error('[Supabase Reset Password Error]', error);
+      }
       return { success: true, message: genericSuccessMessage };
     } catch (err: any) {
+      console.error('[Supabase Reset Password Exception]', err);
       return { success: true, message: genericSuccessMessage };
     }
   }
@@ -332,8 +341,9 @@ export function simulateConfirmEmail(email: string): boolean {
   }
 }
 
+
 /**
- * Login com Supabase Auth e Tratamento Rigoroso de Erros (Seção 13)
+ * Login com Supabase Auth e Tratamento Rigoroso de Erros
  */
 export async function loginUserWithSupabase(
   email: string,
@@ -342,7 +352,9 @@ export async function loginUserWithSupabase(
   success: boolean;
   needsEmailConfirmation?: boolean;
   error?: string;
+  rawError?: { message?: string; status?: number; code?: string };
   user?: any;
+  session?: any;
 }> {
   const normalizedEmail = email.trim().toLowerCase();
   const check = checkLoginAttempts(normalizedEmail);
@@ -360,14 +372,15 @@ export async function loginUserWithSupabase(
         password: pass,
       });
 
-      if (error) {
-        // Diagnóstico dev de credenciais (console.warn para não travar monitor de erros em caso de digitação incorreta)
-        console.warn('[Supabase Auth Login Notice]', {
-          message: error.message,
-          status: error.status,
-          code: (error as any).code,
-        });
+      console.error("POUPAGAIO AUTH DEBUG", {
+        message: error?.message,
+        status: error?.status,
+        code: (error as any)?.code,
+        userId: data?.user?.id,
+        hasSession: !!data?.session
+      });
 
+      if (error) {
         recordFailedLoginAttempt(normalizedEmail);
 
         const errMsgLower = error.message?.toLowerCase() || '';
@@ -380,6 +393,7 @@ export async function loginUserWithSupabase(
             needsEmailConfirmation: true,
             error:
               'E-mail não confirmado no Supabase. Verifique sua caixa de entrada para confirmar a conta.',
+            rawError: { message: error.message, status: error.status, code: errCode },
           };
         }
 
@@ -388,6 +402,7 @@ export async function loginUserWithSupabase(
           return {
             success: false,
             error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
+            rawError: { message: error.message, status: error.status, code: errCode },
           };
         }
 
@@ -400,37 +415,28 @@ export async function loginUserWithSupabase(
         ) {
           return {
             success: false,
-            error: 'Não foi possível conectar. Tente novamente.',
+            error: `Falha de conexão com o Supabase (${error.message || 'NetworkError'}). Tente novamente.`,
+            rawError: { message: error.message, status: error.status, code: errCode },
           };
         }
 
-        // Credenciais Inválidas (E-mail ou senha incorretos)
-        if (
-          errCode === 'invalid_credentials' ||
-          error.status === 400 ||
-          errMsgLower.includes('invalid login credentials')
-        ) {
-          return {
-            success: false,
-            error: 'E-mail ou senha incorretos.',
-          };
-        }
-
-        // Erro genérico / interno
+        // Retorna a mensagem de erro original do Supabase
         return {
           success: false,
-          error: 'Não foi possível entrar agora. Tente novamente.',
+          error: error.message || 'E-mail ou senha incorretos.',
+          rawError: { message: error.message, status: error.status, code: errCode },
         };
       }
 
       resetLoginAttempts(normalizedEmail);
-      return { success: true, user: data.user };
+      return { success: true, user: data.user, session: data.session };
     } catch (err: any) {
-      console.warn('[Supabase Auth Login Exception]', err);
+      console.error('[Supabase Auth Login Exception]', err);
       recordFailedLoginAttempt(normalizedEmail);
       return {
         success: false,
-        error: 'Não foi possível conectar. Tente novamente.',
+        error: err.message || 'Não foi possível conectar. Tente novamente.',
+        rawError: { message: err.message, status: 0, code: 'EXCEPTION' },
       };
     }
   }

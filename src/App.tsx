@@ -43,32 +43,40 @@ import { ToastNotification } from './components/common/ToastNotification';
 const AppContent: React.FC = () => {
   const { currentUser, isOnboarded, selectedMonth } = useFinance();
 
+  // Helper para verificar se a rota atual é de redefinição de senha
+  const checkIsResetRoute = () => {
+    if (typeof window === 'undefined') return false;
+    const href = window.location.href;
+    const path = window.location.pathname;
+    const hash = window.location.hash;
+    return (
+      path.includes('redefinir-senha') ||
+      href.includes('redefinir-senha') ||
+      href.includes('type=recovery') ||
+      hash.includes('type=recovery') ||
+      hash.includes('reset-password')
+    );
+  };
+
   // Estados de navegação e autenticação
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
-  const [isResetPasswordView, setIsResetPasswordView] = useState<boolean>(() => {
-    return (
-      typeof window !== 'undefined' &&
-      (window.location.hash.includes('reset-password') ||
-        window.location.href.includes('type=recovery') ||
-        window.location.hash.includes('type=recovery'))
-    );
-  });
+  const [isResetPasswordView, setIsResetPasswordView] = useState<boolean>(checkIsResetRoute);
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!isOnboarded);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
   React.useEffect(() => {
-    const handleHashChange = () => {
-      if (
-        window.location.hash.includes('reset-password') ||
-        window.location.href.includes('type=recovery') ||
-        window.location.hash.includes('type=recovery')
-      ) {
+    const handleLocationChange = () => {
+      if (checkIsResetRoute()) {
         setIsResetPasswordView(true);
       }
     };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    window.addEventListener('hashchange', handleLocationChange);
+    window.addEventListener('popstate', handleLocationChange);
+    return () => {
+      window.removeEventListener('hashchange', handleLocationChange);
+      window.removeEventListener('popstate', handleLocationChange);
+    };
   }, []);
 
   // Garante que novos usuários cadastrados abram a tela de onboarding
@@ -122,6 +130,9 @@ const AppContent: React.FC = () => {
         onComplete={() => {
           if (typeof window !== 'undefined') {
             window.location.hash = '';
+            if (window.location.pathname.includes('redefinir-senha')) {
+              window.history.replaceState({}, '', '/');
+            }
           }
           setIsResetPasswordView(false);
           setAuthView('login');

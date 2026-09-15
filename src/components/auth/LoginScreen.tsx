@@ -38,13 +38,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
       return;
     }
 
-    if (!isValidEmailFormat(email)) {
-      setError('E-mail ou senha incorretos.');
+    if (!email.trim()) {
+      setError('Por favor, informe seu e-mail.');
       return;
     }
 
-    if (password.length < 8) {
-      setError('E-mail ou senha incorretos.');
+    if (!password) {
+      setError('Por favor, informe sua senha.');
       return;
     }
 
