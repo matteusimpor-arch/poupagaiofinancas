@@ -112,7 +112,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img
-              src="/logo-poupagaio.png"
+              src="/logo-poupagaio-principal.png"
               alt="Poupagaio"
               referrerPolicy="no-referrer"
               className="w-8 h-8 object-contain"
