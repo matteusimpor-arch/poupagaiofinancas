@@ -470,3 +470,44 @@ export async function loginUserWithSupabase(
   recordFailedLoginAttempt(normalizedEmail);
   return { success: false, error: 'E-mail ou senha incorretos.' };
 }
+
+/**
+ * Atualiza a senha do usuário autenticado no Supabase Auth
+ */
+export async function updateUserPasswordWithSupabase(newPassword: string): Promise<{ success: boolean; error?: string }> {
+  if (!supabase) {
+    return { success: true };
+  }
+  try {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      console.warn('[Supabase Update Password Warning]', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('[Supabase Update Password Exception]', err);
+    return { success: false, error: 'Não foi possível alterar a senha. Tente novamente.' };
+  }
+}
+
+/**
+ * Atualiza metadados do perfil do usuário no Supabase Auth
+ */
+export async function updateUserProfileMetadataWithSupabase(metadata: { full_name?: string; phone?: string }): Promise<{ success: boolean; error?: string }> {
+  if (!supabase) {
+    return { success: true };
+  }
+  try {
+    const { error } = await supabase.auth.updateUser({ data: metadata });
+    if (error) {
+      console.warn('[Supabase Update Metadata Warning]', error);
+      return { success: false, error: error.message };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error('[Supabase Update Metadata Exception]', err);
+    return { success: false, error: err.message };
+  }
+}
+

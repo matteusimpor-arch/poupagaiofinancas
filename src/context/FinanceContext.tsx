@@ -41,14 +41,12 @@ import {
 import { DEFAULT_CATEGORIES } from '../data/defaultCategories';
 import { computeAccountStatus, evaluateMonthClosing } from '../lib/calculations';
 import {
-  auth,
-  loginWithGoogle as firebaseLoginGoogle,
-  loginWithEmail,
-  signupWithEmail,
-  logoutUser,
-} from '../lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { supabase, loginUserWithSupabase, registerUserWithSupabase } from '../lib/supabase';
+  supabase,
+  loginUserWithSupabase,
+  registerUserWithSupabase,
+  updateUserPasswordWithSupabase,
+  updateUserProfileMetadataWithSupabase,
+} from '../lib/supabase';
 import {
   saveToFirestore,
   deleteFromFirestore,
@@ -644,95 +642,72 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     shoppingPriceReferences,
   ]);
 
-  // Monitora alterações de autenticação no Supabase Auth e Firebase Auth
+  // Monitora alterações de autenticação exclusivamente no Supabase Auth
   useEffect(() => {
-    if (supabase) {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          const userObj = session.user;
-          const profile: Profile = {
-            id: userObj.id,
-            email: userObj.email || '',
-            full_name:
-              userObj.user_metadata?.full_name ||
-              userObj.user_metadata?.name ||
-              userObj.email?.split('@')[0] ||
-              'Usuário Poupagaio',
-            avatar_url: userObj.user_metadata?.avatar_url,
-            due_alert_days: 3,
-            created_at: userObj.created_at || new Date().toISOString(),
-          };
-          setCurrentUser(profile);
-        }
-      });
+    if (!supabase) return;
 
-      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          const userObj = session.user;
-          const profile: Profile = {
-            id: userObj.id,
-            email: userObj.email || '',
-            full_name:
-              userObj.user_metadata?.full_name ||
-              userObj.user_metadata?.name ||
-              userObj.email?.split('@')[0] ||
-              'Usuário Poupagaio',
-            avatar_url: userObj.user_metadata?.avatar_url,
-            due_alert_days: 3,
-            created_at: userObj.created_at || new Date().toISOString(),
-          };
-          setCurrentUser(profile);
-        }
-      });
-
-      return () => {
-        authListener?.subscription?.unsubscribe();
-      };
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        const userProfile: Profile = {
-          id: firebaseUser.uid,
-          email: firebaseUser.email || '',
-          full_name:
-            firebaseUser.displayName ||
-            firebaseUser.email?.split('@')[0] ||
-            'Usuário Poupagaio',
-          avatar_url: firebaseUser.photoURL || undefined,
-          due_alert_days: 3,
-          created_at: new Date().toISOString(),
-        };
-        setCurrentUser(userProfile);
-        saveToFirestore('users', userProfile.id, userProfile);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Funções de Autenticação Firebase
-  const loginWithGoogle = async (): Promise<boolean> => {
-    try {
-      const fbUser = await firebaseLoginGoogle();
-      if (fbUser) {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const userObj = session.user;
         const profile: Profile = {
-          id: fbUser.uid,
-          email: fbUser.email || '',
+          id: userObj.id,
+          email: userObj.email || '',
           full_name:
-            fbUser.displayName ||
-            fbUser.email?.split('@')[0] ||
+            userObj.user_metadata?.full_name ||
+            userObj.user_metadata?.name ||
+            userObj.email?.split('@')[0] ||
             'Usuário Poupagaio',
-          avatar_url: fbUser.photoURL || undefined,
+          avatar_url: userObj.user_metadata?.avatar_url,
           due_alert_days: 3,
-          created_at: new Date().toISOString(),
+          created_at: userObj.created_at || new Date().toISOString(),
         };
         setCurrentUser(profile);
-        saveToFirestore('users', profile.id, profile);
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const userObj = session.user;
+        const profile: Profile = {
+          id: userObj.id,
+          email: userObj.email || '',
+          full_name:
+            userObj.user_metadata?.full_name ||
+            userObj.user_metadata?.name ||
+            userObj.email?.split('@')[0] ||
+            'Usuário Poupagaio',
+          avatar_url: userObj.user_metadata?.avatar_url,
+          due_alert_days: 3,
+          created_at: userObj.created_at || new Date().toISOString(),
+        };
+        setCurrentUser(profile);
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Autenticação com Google via Supabase OAuth
+  const loginWithGoogle = async (): Promise<boolean> => {
+    try {
+      if (supabase) {
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo: window.location.origin,
+          },
+        });
+        if (error) {
+          console.warn('[Supabase Google Auth Notice]', error.message);
+          return false;
+        }
         return true;
       }
       return false;
     } catch (err) {
-      console.error('Erro no login com Google:', err);
+      console.warn('[Supabase Google Auth Exception]', err);
       return false;
     }
   };
@@ -924,7 +899,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (supabase) {
         await supabase.auth.signOut();
       }
-      await logoutUser().catch(() => {});
     } catch (err) {
       console.error('Erro no logout:', err);
     } finally {
@@ -938,11 +912,26 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const updated = { ...currentUser, ...data };
     setCurrentUser(updated);
     saveToFirestore('users', updated.id, updated);
+    
+    // Atualiza metadados do usuário no Supabase Auth (se ativado)
+    if (data.full_name || data.phone) {
+      updateUserProfileMetadataWithSupabase({
+        full_name: updated.full_name,
+        phone: updated.phone,
+      }).catch(() => {});
+    }
+
     logAudit('Atualização de perfil', 'profiles', currentUser.id, data);
   };
 
   const changePassword = async (newPass: string): Promise<boolean> => {
-    if (newPass.length < 8) return false;
+    if (!newPass || newPass.length < 8) return false;
+    
+    const res = await updateUserPasswordWithSupabase(newPass);
+    if (!res.success) {
+      return false;
+    }
+
     logAudit('Alteração de senha', 'profiles', currentUser?.id);
     return true;
   };
