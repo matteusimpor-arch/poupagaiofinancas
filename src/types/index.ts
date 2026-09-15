@@ -4,6 +4,8 @@ export interface Profile {
   id: string;
   email: string;
   full_name: string;
+  first_name?: string;
+  last_name?: string;
   phone?: string;
   avatar_url?: string;
   due_alert_days: 3 | 5 | 7;

@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { Mail, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
-import { useFinance } from '../../context/FinanceContext';
+import { Mail, User, Phone, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PoupagaioLogo } from '../common/PoupagaioLogo';
 import {
   isValidEmailFormat,
-  registerUserWithSupabase,
+  signUpPasswordless,
   resendConfirmationEmail,
 } from '../../lib/supabase';
 
@@ -13,14 +12,10 @@ interface RegisterScreenProps {
 }
 
 export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin }) => {
-  const { signup } = useFinance();
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const phone = '';
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [phone, setPhone] = useState('');
 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,39 +26,52 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
 
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = e.target.value.replace(/\D/g, '');
+    if (value.length > 11) value = value.substring(0, 11);
+
+    if (value.length > 10) {
+      value = value.replace(/^(\d{2})(\d{5})(\d{4})$/, '($1) $2-$3');
+    } else if (value.length > 6) {
+      value = value.replace(/^(\d{2})(\d{4})(\d{0,4})$/, '($1) $2-$3');
+    } else if (value.length > 2) {
+      value = value.replace(/^(\d{2})(\d{0,5})$/, '($1) $2');
+    } else if (value.length > 0) {
+      value = `(${value}`;
+    }
+    setPhone(value);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    // 1.1 e 1.2 Validações
-    if (!name.trim()) {
-      setError('Informe seu nome completo.');
+    const fName = firstName.trim();
+    const lName = lastName.trim();
+    const targetEmail = email.trim().toLowerCase();
+
+    if (!fName) {
+      setError('Por favor, informe seu nome.');
       return;
     }
 
-    if (!isValidEmailFormat(email)) {
-      setError('Por favor, informe um endereço de e-mail válido (ex: seuemail@exemplo.com).');
+    if (!lName) {
+      setError('Por favor, informe seu sobrenome.');
       return;
     }
 
-    if (password.length < 8) {
-      setError('A senha deve possuir no mínimo 8 caracteres.');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError('As senhas digitadas não coincidem. Verifique e tente novamente.');
+    if (!isValidEmailFormat(targetEmail)) {
+      setError('Por favor, informe um endereço de e-mail válido.');
       return;
     }
 
     setIsLoading(true);
     try {
-      // Registra no banco local / Supabase
-      const res = await registerUserWithSupabase({
-        name,
-        email,
-        phone,
-        password,
+      const res = await signUpPasswordless({
+        firstName: fName,
+        lastName: lName,
+        email: targetEmail,
+        phone: phone || undefined,
       });
 
       if (!res.success) {
@@ -72,17 +80,9 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
         return;
       }
 
-      // Se necessitar de confirmação por e-mail no Supabase
-      if (res.needsEmailConfirmation) {
-        setIsPendingConfirmation(true);
-        setIsLoading(false);
-        return;
-      }
-
-      // Login imediato e simplificado utilizando o auth.uid() retornado
-      await signup(name, email, password, phone, res.user);
-    } catch (err) {
-      setError('Erro ao cadastrar. Tente novamente.');
+      setIsPendingConfirmation(true);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao cadastrar. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -93,11 +93,11 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
     setResendSuccess(null);
     setResendError(null);
     try {
-      const res = await resendConfirmationEmail(email);
+      const res = await resendConfirmationEmail(email.trim().toLowerCase());
       if (res.success) {
-        setResendSuccess('E-mail de confirmação reenviado com sucesso! Verifique sua caixa de entrada.');
+        setResendSuccess('E-mail de ativação reenviado com sucesso! Verifique sua caixa de entrada.');
       } else {
-        setResendError(res.error || 'Não foi possível reenviar o e-mail de confirmação.');
+        setResendError(res.error || 'Não foi possível reenviar o e-mail.');
       }
     } catch (err: any) {
       setResendError(err.message || 'Erro ao reenviar o e-mail.');
@@ -122,11 +122,10 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
               Enviamos um link de ativação para <strong className="text-[#18201B]">{email}</strong>.
             </p>
             <p className="text-xs text-[#68736C] leading-relaxed max-w-xs bg-[#F6FAF7] p-3 rounded-xl border border-[#DDE8E0]/60">
-              Por favor, clique no link contido no e-mail para ativar sua conta. Após confirmar, você poderá fazer o login normalmente no Poupagaio.
+              Por favor, clique no link contido no e-mail para ativar sua conta e iniciar sua experiência sem senha no Poupagaio.
             </p>
           </div>
 
-          {/* Status do Reenvio */}
           {(resendSuccess || resendError) && (
             <div className={`p-3.5 rounded-xl border text-xs text-center ${resendSuccess ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
               {resendSuccess && <p className="text-emerald-700 font-semibold">{resendSuccess}</p>}
@@ -138,7 +137,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
             <button
               type="button"
               onClick={onSwitchToLogin}
-              className="w-full py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99]"
+              className="w-full py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] min-h-[44px]"
             >
               Ir para Login
             </button>
@@ -147,7 +146,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
               type="button"
               disabled={resendLoading}
               onClick={handleResend}
-              className="w-full py-2.5 px-4 bg-transparent hover:bg-emerald-50/50 text-[#22C55E] font-bold text-xs rounded-xl border border-[#22C55E]/20 transition-all active:scale-[0.99] disabled:opacity-50"
+              className="w-full py-2.5 px-4 bg-transparent hover:bg-emerald-50/50 text-[#22C55E] font-bold text-xs rounded-xl border border-[#22C55E]/20 transition-all active:scale-[0.99] disabled:opacity-50 min-h-[42px]"
             >
               {resendLoading ? 'Reenviando...' : 'Reenviar E-mail de Confirmação'}
             </button>
@@ -191,19 +190,20 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
         </div>
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700">
-            {error}
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
+            <span>{error}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
-          {/* 1. Nome Completo */}
+          {/* Nome */}
           <div>
             <label
-              htmlFor="reg-name"
+              htmlFor="reg-firstname"
               className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
             >
-              Seu Nome Completo <span className="text-red-500">*</span>
+              Nome <span className="text-red-500">*</span>
             </label>
             <div className="relative">
               <User
@@ -211,19 +211,44 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
                 className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
               />
               <input
-                id="reg-name"
+                id="reg-firstname"
                 type="text"
                 required
                 autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: Mateus Araujo"
-                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Ex: Mateus"
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none min-h-[44px]"
               />
             </div>
           </div>
 
-          {/* 2. E-mail */}
+          {/* Sobrenome */}
+          <div>
+            <label
+              htmlFor="reg-lastname"
+              className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
+            >
+              Sobrenome <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <User
+                size={18}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
+              />
+              <input
+                id="reg-lastname"
+                type="text"
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Ex: Araujo"
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          {/* E-mail */}
           <div>
             <label
               htmlFor="reg-email"
@@ -243,76 +268,32 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="seuemail@exemplo.com"
-                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none min-h-[44px]"
               />
             </div>
           </div>
 
-          {/* 3. Senha (Mínimo 8 caracteres) */}
+          {/* Telefone */}
           <div>
             <label
-              htmlFor="reg-password"
+              htmlFor="reg-phone"
               className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
             >
-              Senha (mínimo 8 caracteres) <span className="text-red-500">*</span>
+              Telefone (Opcional)
             </label>
             <div className="relative">
-              <Lock
+              <Phone
                 size={18}
                 className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
               />
               <input
-                id="reg-password"
-                type={showPassword ? 'text' : 'password'}
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Crie uma senha forte"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
+                id="reg-phone"
+                type="tel"
+                value={phone}
+                onChange={handlePhoneChange}
+                placeholder="(11) 99999-9999"
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none min-h-[44px]"
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#68736C] hover:text-[#18201B]"
-                aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-          </div>
-
-          {/* 5. Confirmar Senha */}
-          <div>
-            <label
-              htmlFor="reg-confirm-password"
-              className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
-            >
-              Confirmar Senha <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <Lock
-                size={18}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
-              />
-              <input
-                id="reg-confirm-password"
-                type={showConfirmPassword ? 'text' : 'password'}
-                required
-                minLength={8}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Repita sua senha"
-                className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#68736C] hover:text-[#18201B]"
-                aria-label={showConfirmPassword ? 'Ocultar confirmação de senha' : 'Exibir confirmação de senha'}
-              >
-                {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
             </div>
           </div>
 
@@ -321,7 +302,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
             type="submit"
             id="btn-submit-register"
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] mt-2"
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] mt-2 min-h-[44px]"
           >
             <span>{isLoading ? 'Criando sua conta...' : 'Cadastrar Gratuitamente'}</span>
             <ArrowRight size={17} />

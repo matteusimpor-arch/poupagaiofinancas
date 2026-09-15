@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   User,
   Mail,
-  Lock,
   Phone,
   Bell,
   Users,
@@ -12,10 +11,10 @@ import {
   AlertCircle,
   RotateCcw,
   LogOut,
-  KeyRound,
 } from 'lucide-react';
 import { useFinance } from '../../context/FinanceContext';
 import { formatDateBR } from '../../lib/calculations';
+import { normalizePhoneNumber } from '../../lib/supabase';
 
 interface ProfileViewProps {
   onOpenInviteModal: () => void;
@@ -37,72 +36,43 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     resetDemoData,
     logout,
     updateProfile,
-    changePassword,
   } = useFinance();
 
-  // Estados do formulário de Perfil
-  const [name, setName] = useState(currentUser?.full_name || '');
+  // Estados do formulário de Perfil (Seções 17 e 18)
+  const [firstName, setFirstName] = useState(currentUser?.first_name || currentUser?.full_name?.split(' ')[0] || '');
+  const [lastName, setLastName] = useState(currentUser?.last_name || currentUser?.full_name?.split(' ').slice(1).join(' ') || '');
   const [email] = useState(currentUser?.email || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [dueAlertDays, setDueAlertDays] = useState<number>(currentUser?.due_alert_days || 3);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
-  // Estados de Alteração de Senha (Seção P)
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
-  const [passwordSuccess, setPasswordSuccess] = useState<boolean>(false);
-  const [isPasswordLoading, setIsPasswordLoading] = useState(false);
-
   // Estados de Categorias
   const [newCatName, setNewCatName] = useState('');
   const [newCatType, setNewCatType] = useState<'income' | 'expense'>('expense');
 
+  // Máscara e formatação de telefone para exibição: (XX) XXXXX-XXXX
+  const formatPhoneMask = (val: string) => {
+    const cleaned = val.replace(/\D/g, '');
+    if (cleaned.length <= 2) return cleaned;
+    if (cleaned.length <= 6) return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2)}`;
+    if (cleaned.length <= 10) return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 6)}-${cleaned.slice(6)}`;
+    return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 7)}-${cleaned.slice(7, 11)}`;
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPhone(formatPhoneMask(e.target.value));
+  };
+
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     updateProfile({
-      full_name: name.trim(),
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
       phone: phone.trim(),
       due_alert_days: dueAlertDays,
     });
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 3000);
-  };
-
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPasswordMessage(null);
-
-    if (!newPassword || newPassword.length < 8) {
-      setPasswordSuccess(false);
-      setPasswordMessage('A nova senha deve possuir no mínimo 8 caracteres.');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setPasswordSuccess(false);
-      setPasswordMessage('As senhas digitadas não coincidem.');
-      return;
-    }
-
-    setIsPasswordLoading(true);
-    try {
-      const ok = await changePassword(newPassword);
-      if (ok) {
-        setPasswordSuccess(true);
-        setPasswordMessage('Senha alterada com sucesso!');
-        setNewPassword('');
-        setConfirmPassword('');
-      } else {
-        setPasswordSuccess(false);
-        setPasswordMessage('Não foi possível alterar a senha. Tente novamente.');
-      }
-    } catch (err) {
-      setPasswordSuccess(false);
-      setPasswordMessage('Não foi possível alterar a senha. Tente novamente.');
-    } finally {
-      setIsPasswordLoading(false);
-    }
   };
 
   const handleAddCategory = (e: React.FormEvent) => {
@@ -155,23 +125,45 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
             <form onSubmit={handleSaveProfile} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Nome Completo */}
+                {/* Nome */}
                 <div>
                   <label
-                    htmlFor="input-profile-name"
+                    htmlFor="input-profile-firstname"
                     className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
                   >
-                    Nome Completo
+                    Nome
                   </label>
                   <div className="relative">
                     <User size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]" />
                     <input
-                      id="input-profile-name"
+                      id="input-profile-firstname"
                       type="text"
                       required
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      placeholder="Seu nome completo"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="Nome"
+                      className="w-full pl-10 pr-3.5 py-2.5 min-h-[44px] text-xs sm:text-sm font-semibold bg-[#F6FAF7] border border-[#DDE8E0] rounded-xl text-[#18201B] focus:bg-white focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Sobrenome */}
+                <div>
+                  <label
+                    htmlFor="input-profile-lastname"
+                    className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
+                  >
+                    Sobrenome
+                  </label>
+                  <div className="relative">
+                    <User size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]" />
+                    <input
+                      id="input-profile-lastname"
+                      type="text"
+                      required
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Sobrenome"
                       className="w-full pl-10 pr-3.5 py-2.5 min-h-[44px] text-xs sm:text-sm font-semibold bg-[#F6FAF7] border border-[#DDE8E0] rounded-xl text-[#18201B] focus:bg-white focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
                     />
                   </div>
@@ -198,7 +190,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
 
                 {/* Telefone (opcional) */}
-                <div className="sm:col-span-2">
+                <div>
                   <label
                     htmlFor="input-profile-phone"
                     className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
@@ -211,7 +203,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       id="input-profile-phone"
                       type="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={handlePhoneChange}
                       placeholder="(11) 99999-9999"
                       className="w-full pl-10 pr-3.5 py-2.5 min-h-[44px] text-xs sm:text-sm font-semibold bg-[#F6FAF7] border border-[#DDE8E0] rounded-xl text-[#18201B] focus:bg-white focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
                     />
@@ -252,88 +244,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   className="w-full sm:w-auto px-6 py-2.5 min-h-[44px] bg-[#22C55E] hover:bg-[#16a34a] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors active:scale-95"
                 >
                   Salvar Perfil
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Card 2: Seguraça & Alterar Senha (Seção P) */}
-          <div className="p-4 sm:p-6 bg-white rounded-2xl border border-[#DDE8E0] shadow-xs space-y-4">
-            <div className="flex items-center gap-2 pb-2 border-b border-[#DDE8E0]/60">
-              <KeyRound size={20} className="text-[#22C55E]" />
-              <h3 className="text-base font-bold text-[#0D3B22]">Segurança & Senha</h3>
-            </div>
-
-            {passwordMessage && (
-              <div
-                className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                  passwordSuccess
-                    ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-                    : 'bg-red-50 border border-red-200 text-red-700'
-                }`}
-              >
-                {passwordSuccess ? (
-                  <CheckCircle2 size={16} className="shrink-0 text-[#22C55E]" />
-                ) : (
-                  <AlertCircle size={16} className="shrink-0 text-red-600" />
-                )}
-                <span>{passwordMessage}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleChangePassword} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="input-new-password"
-                    className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
-                  >
-                    Nova Senha
-                  </label>
-                  <div className="relative">
-                    <Lock size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]" />
-                    <input
-                      id="input-new-password"
-                      type="password"
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Mínimo 8 caracteres"
-                      className="w-full pl-10 pr-3.5 py-2.5 min-h-[44px] text-xs sm:text-sm font-semibold bg-[#F6FAF7] border border-[#DDE8E0] rounded-xl text-[#18201B] focus:bg-white focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="input-confirm-password"
-                    className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
-                  >
-                    Confirmar Nova Senha
-                  </label>
-                  <div className="relative">
-                    <Lock size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]" />
-                    <input
-                      id="input-confirm-password"
-                      type="password"
-                      required
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      placeholder="Repita a nova senha"
-                      className="w-full pl-10 pr-3.5 py-2.5 min-h-[44px] text-xs sm:text-sm font-semibold bg-[#F6FAF7] border border-[#DDE8E0] rounded-xl text-[#18201B] focus:bg-white focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  type="submit"
-                  id="btn-change-password"
-                  disabled={isPasswordLoading}
-                  className="w-full sm:w-auto px-6 py-2.5 min-h-[44px] bg-[#0D3B22] hover:bg-[#18201B] text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-colors active:scale-95 disabled:opacity-50"
-                >
-                  {isPasswordLoading ? 'Alterando...' : 'Alterar Senha'}
                 </button>
               </div>
             </form>

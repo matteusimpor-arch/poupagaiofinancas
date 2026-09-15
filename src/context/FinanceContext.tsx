@@ -64,7 +64,7 @@ interface FinanceContextType {
   loginWithGoogle: () => Promise<boolean>;
   signup: (name: string, email: string, pass: string, phone?: string, authenticatedUser?: any) => Promise<boolean>;
   logout: () => Promise<void>;
-  updateProfile: (data: Partial<Profile>) => void;
+  updateProfile: (data: Partial<Profile> & { first_name?: string; last_name?: string }) => void;
   changePassword: (newPass: string) => Promise<boolean>;
   deleteAccount: () => Promise<void>;
   completeOnboarding: (usageType: 'individual' | 'shared') => void;
@@ -642,47 +642,87 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     shoppingPriceReferences,
   ]);
 
-  // Monitora alterações de autenticação exclusivamente no Supabase Auth
+  // Monitora alterações de autenticação exclusivamente no Supabase Auth e trata o callback (Seções 7 e 13)
   useEffect(() => {
     if (!supabase) return;
+
+    // Trata callback de troca de código por sessão (PKCE flow)
+    const handleCallback = async () => {
+      const searchParams = new URLSearchParams(window.location.search);
+      const code = searchParams.get('code');
+      const path = window.location.pathname;
+
+      if (code || path.includes('/auth/callback')) {
+        try {
+          if (code) {
+            const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+            if (error) {
+              console.error('[Supabase PKCE Exchange Error]', error);
+            } else if (data?.session) {
+              console.log('[Supabase PKCE Exchange Success] Session established');
+            }
+          }
+        } catch (err) {
+          console.error('[Supabase PKCE Exchange Exception]', err);
+        } finally {
+          // Redireciona de volta limpando o callback e preservando uma experiência fluida
+          const cleanUrl = window.location.origin + window.location.pathname.replace('/auth/callback', '');
+          window.history.replaceState({}, '', cleanUrl);
+        }
+      }
+    };
+
+    handleCallback();
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         const userObj = session.user;
+        const first_name = userObj.user_metadata?.first_name || '';
+        const last_name = userObj.user_metadata?.last_name || '';
+        const full_name = userObj.user_metadata?.full_name || 
+                          (first_name || last_name ? `${first_name} ${last_name}`.trim() : '') ||
+                          userObj.user_metadata?.name ||
+                          userObj.email?.split('@')[0] ||
+                          'Usuário Poupagaio';
         const profile: Profile = {
           id: userObj.id,
           email: userObj.email || '',
-          full_name:
-            userObj.user_metadata?.full_name ||
-            userObj.user_metadata?.name ||
-            userObj.email?.split('@')[0] ||
-            'Usuário Poupagaio',
+          full_name,
+          first_name,
+          last_name,
           phone: userObj.user_metadata?.phone || userObj.phone || '',
           avatar_url: userObj.user_metadata?.avatar_url,
           due_alert_days: 3,
           created_at: userObj.created_at || new Date().toISOString(),
         };
         setCurrentUser(profile);
+        saveToFirestore('users', profile.id, profile);
       }
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         const userObj = session.user;
+        const first_name = userObj.user_metadata?.first_name || '';
+        const last_name = userObj.user_metadata?.last_name || '';
+        const full_name = userObj.user_metadata?.full_name || 
+                          (first_name || last_name ? `${first_name} ${last_name}`.trim() : '') ||
+                          userObj.user_metadata?.name ||
+                          userObj.email?.split('@')[0] ||
+                          'Usuário Poupagaio';
         const profile: Profile = {
           id: userObj.id,
           email: userObj.email || '',
-          full_name:
-            userObj.user_metadata?.full_name ||
-            userObj.user_metadata?.name ||
-            userObj.email?.split('@')[0] ||
-            'Usuário Poupagaio',
+          full_name,
+          first_name,
+          last_name,
           phone: userObj.user_metadata?.phone || userObj.phone || '',
           avatar_url: userObj.user_metadata?.avatar_url,
           due_alert_days: 3,
           created_at: userObj.created_at || new Date().toISOString(),
         };
         setCurrentUser(profile);
+        saveToFirestore('users', profile.id, profile);
       }
     });
 
@@ -911,19 +951,24 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const updateProfile = (data: Partial<Profile>) => {
+  const updateProfile = (data: Partial<Profile> & { first_name?: string; last_name?: string }) => {
     if (!currentUser) return;
     const updated = { ...currentUser, ...data };
+    if (data.first_name !== undefined || data.last_name !== undefined) {
+      const fName = data.first_name !== undefined ? data.first_name : (currentUser.first_name || '');
+      const lName = data.last_name !== undefined ? data.last_name : (currentUser.last_name || '');
+      updated.full_name = `${fName} ${lName}`.trim() || updated.full_name;
+    }
     setCurrentUser(updated);
     saveToFirestore('users', updated.id, updated);
     
     // Atualiza metadados do usuário no Supabase Auth (se ativado)
-    if (data.full_name || data.phone) {
-      updateUserProfileMetadataWithSupabase({
-        full_name: updated.full_name,
-        phone: updated.phone,
-      }).catch(() => {});
-    }
+    updateUserProfileMetadataWithSupabase({
+      full_name: updated.full_name,
+      first_name: updated.first_name,
+      last_name: updated.last_name,
+      phone: updated.phone,
+    }).catch(() => {});
 
     logAudit('Atualização de perfil', 'profiles', currentUser.id, data);
   };

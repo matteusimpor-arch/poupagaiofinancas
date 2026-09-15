@@ -1,13 +1,10 @@
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
-import { useFinance } from '../../context/FinanceContext';
+import { Mail, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { PoupagaioLogo } from '../common/PoupagaioLogo';
 import {
   checkLoginAttempts,
   isValidEmailFormat,
-  loginUserWithSupabase,
-  sendPasswordResetEmail,
-  resendConfirmationEmail,
+  signInPasswordless,
 } from '../../lib/supabase';
 
 interface LoginScreenProps {
@@ -15,110 +12,50 @@ interface LoginScreenProps {
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) => {
-  const { login } = useFinance();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  // Estados para reenvio de confirmação de e-mail
-  const [showResendOption, setShowResendOption] = useState(false);
-  const [resendLoading, setResendLoading] = useState(false);
-  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
-  const [resendError, setResendError] = useState<string | null>(null);
-
-  // Esqueci minha senha (Seção 1.6)
-  const [showForgot, setShowForgot] = useState(false);
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [forgotSent, setForgotSent] = useState(false);
-  const [forgotLoading, setForgotLoading] = useState(false);
+  const [isSent, setIsSent] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setShowResendOption(false);
-    setResendSuccess(null);
-    setResendError(null);
 
-    // 1.5 Verificação de bloqueio por excesso de tentativas
-    const attemptCheck = checkLoginAttempts(email);
+    const targetEmail = email.trim().toLowerCase();
+
+    if (!targetEmail) {
+      setError('Por favor, informe seu e-mail.');
+      return;
+    }
+
+    if (!isValidEmailFormat(targetEmail)) {
+      setError('Por favor, informe um e-mail válido.');
+      return;
+    }
+
+    // Verificação de bloqueio por excesso de tentativas (Seção 2)
+    const attemptCheck = checkLoginAttempts(targetEmail);
     if (attemptCheck.isBlocked) {
       setError('Muitas tentativas. Aguarde alguns minutos e tente novamente.');
       return;
     }
 
-    if (!email.trim()) {
-      setError('Por favor, informe seu e-mail.');
-      return;
-    }
-
-    if (!password) {
-      setError('Por favor, informe sua senha.');
-      return;
-    }
-
     setIsLoading(true);
     try {
-      // Tenta login com verificação de segurança Supabase/Local
-      const res = await loginUserWithSupabase(email, password);
+      const res = await signInPasswordless(targetEmail);
 
       if (!res.success) {
-        setError(res.error || 'E-mail ou senha incorretos.');
-        if (res.needsEmailConfirmation) {
-          setShowResendOption(true);
-        }
+        setError(res.error || 'Não foi possível enviar o e-mail de acesso.');
         setIsLoading(false);
         return;
       }
 
-      // Conclui login no FinanceContext mantendo o auth.uid() do usuário
-      await login(email, password, res.user);
+      setIsSent(true);
     } catch (err) {
-      setError('E-mail ou senha incorretos.');
+      // Mensagem neutra em caso de exceção de segurança (Seção 22)
+      setIsSent(true);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleResendConfirmation = async () => {
-    setResendLoading(true);
-    setResendSuccess(null);
-    setResendError(null);
-    try {
-      const res = await resendConfirmationEmail(email);
-      if (res.success) {
-        setResendSuccess('E-mail de confirmação reenviado com sucesso! Verifique sua caixa de entrada.');
-      } else {
-        setResendError(res.error || 'Não foi possível reenviar o e-mail de confirmação.');
-      }
-    } catch (err: any) {
-      setResendError(err.message || 'Erro ao reenviar o e-mail.');
-    } finally {
-      setResendLoading(false);
-    }
-  };
-
-  const [forgotMessage, setForgotMessage] = useState<string>('');
-
-  const handleForgotPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    if (!isValidEmailFormat(forgotEmail)) {
-      setError('Por favor, informe um endereço de e-mail válido.');
-      return;
-    }
-
-    setForgotLoading(true);
-    try {
-      const res = await sendPasswordResetEmail(forgotEmail);
-      setForgotMessage(res.message);
-      setForgotSent(true);
-    } catch (e) {
-      setForgotMessage('Se existir uma conta associada a esse e-mail, enviaremos as instruções para redefinir a senha.');
-      setForgotSent(true);
-    } finally {
-      setForgotLoading(false);
     }
   };
 
@@ -136,80 +73,64 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
           </p>
         </div>
 
-        {/* Abas Alternadoras Entrar / Cadastrar */}
-        <div className="flex p-1 bg-[#F6FAF7] border border-[#DDE8E0] rounded-2xl">
-          <button
-            type="button"
-            id="tab-active-login"
-            className="flex-1 py-2 text-xs font-bold rounded-xl transition-all bg-white text-[#0D3B22] shadow-2xs"
-          >
-            Entrar
-          </button>
-          <button
-            type="button"
-            id="tab-switch-to-register"
-            onClick={onSwitchToRegister}
-            className="flex-1 py-2 text-xs font-bold rounded-xl transition-all text-[#68736C] hover:text-[#18201B]"
-          >
-            Criar Conta
-          </button>
-        </div>
-
-        {error && (
-          <div className="space-y-2">
-            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
-              <AlertCircle size={16} className="shrink-0 mt-0.5" />
-              <span>{error}</span>
+        {isSent ? (
+          <div className="space-y-4 text-center">
+            <div className="mx-auto w-12 h-12 bg-emerald-50 text-[#22C55E] rounded-full flex items-center justify-center border border-[#22C55E]/30 shadow-xs">
+              <CheckCircle2 size={24} />
             </div>
-
-            {showResendOption && (
-              <div className="p-3.5 bg-emerald-50 border border-[#22C55E]/15 rounded-xl space-y-2">
-                <p className="text-[11px] text-[#0D3B22] leading-relaxed">
-                  Não recebeu o e-mail de ativação ou o link expirou? Clique abaixo para reenviar.
-                </p>
-                {resendSuccess && (
-                  <p className="text-[11px] font-semibold text-emerald-700">{resendSuccess}</p>
-                )}
-                {resendError && (
-                  <p className="text-[11px] font-semibold text-red-600">{resendError}</p>
-                )}
-                <button
-                  type="button"
-                  disabled={resendLoading}
-                  onClick={handleResendConfirmation}
-                  className="text-[11px] font-extrabold text-[#22C55E] hover:text-[#16a34a] transition-all flex items-center gap-1 active:scale-[0.98] disabled:opacity-50"
-                >
-                  {resendLoading ? 'Enviando...' : 'Reenviar e-mail de confirmação'}
-                  <ArrowRight size={12} />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {showForgot ? (
-          <form onSubmit={handleForgotPassword} className="space-y-4">
-            <div className="space-y-1">
-              <h3 className="text-base font-bold text-[#0D3B22]">Recuperação de Senha</h3>
+            <div className="space-y-2">
+              <h3 className="text-base font-bold text-[#0D3B22]">Link de acesso enviado!</h3>
               <p className="text-xs text-[#68736C] leading-relaxed">
-                Informe seu e-mail cadastrado e enviaremos um link seguro para redefinição.
+                Enviamos um link de login para <span className="font-semibold text-[#0D3B22]">{email}</span>. Acesse seu e-mail e clique no botão para entrar.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsSent(false);
+                setEmail('');
+              }}
+              className="text-xs font-bold text-[#22C55E] hover:underline"
+            >
+              Voltar para Entrar
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* Abas Alternadoras Entrar / Cadastrar */}
+            <div className="flex p-1 bg-[#F6FAF7] border border-[#DDE8E0] rounded-2xl">
+              <button
+                type="button"
+                id="tab-active-login"
+                className="flex-1 py-2 text-xs font-bold rounded-xl transition-all bg-white text-[#0D3B22] shadow-2xs"
+              >
+                Entrar
+              </button>
+              <button
+                type="button"
+                id="tab-switch-to-register"
+                onClick={onSwitchToRegister}
+                className="flex-1 py-2 text-xs font-bold rounded-xl transition-all text-[#68736C] hover:text-[#18201B]"
+              >
+                Criar Conta
+              </button>
+            </div>
 
-            {forgotSent ? (
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs font-semibold text-emerald-800 space-y-2">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 size={18} className="text-[#22C55E] shrink-0" />
-                  <span>Solicitação recebida</span>
-                </div>
-                <p className="text-[12px] text-[#0D3B22] font-normal leading-relaxed">
-                  {forgotMessage || 'Se existir uma conta associada a esse e-mail, enviaremos as instruções para redefinir a senha.'}
-                </p>
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
+                <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                <span>{error}</span>
               </div>
-            ) : (
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* E-mail */}
               <div>
-                <label className="block text-xs font-bold text-[#0D3B22] uppercase mb-1">
-                  E-mail
+                <label
+                  htmlFor="login-email"
+                  className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1.5"
+                >
+                  E-mail de Acesso
                 </label>
                 <div className="relative">
                   <Mail
@@ -217,124 +138,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
                     className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
                   />
                   <input
+                    id="login-email"
                     type="email"
                     required
-                    value={forgotEmail}
-                    onChange={(e) => setForgotEmail(e.target.value)}
+                    autoFocus
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     placeholder="seuemail@exemplo.com"
-                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none min-h-[44px]"
                   />
                 </div>
               </div>
-            )}
 
-            <div className="flex items-center justify-between pt-2">
+              {/* Botão Entrar */}
               <button
-                type="button"
-                onClick={() => {
-                  setShowForgot(false);
-                  setForgotSent(false);
-                }}
-                className="text-xs font-bold text-[#68736C] hover:underline"
+                type="submit"
+                id="btn-submit-login"
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] min-h-[44px]"
               >
-                Voltar ao login
+                <span>{isLoading ? 'Enviando...' : 'Entrar sem Senha'}</span>
+                <ArrowRight size={17} />
               </button>
-              {!forgotSent && (
-                <button
-                  type="submit"
-                  disabled={forgotLoading}
-                  className="py-2 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-xs rounded-xl shadow-xs transition-all"
-                >
-                  {forgotLoading ? 'Enviando...' : 'Enviar Link'}
-                </button>
-              )}
-            </div>
-          </form>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* E-mail */}
-            <div>
-              <label
-                htmlFor="login-email"
-                className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide mb-1"
-              >
-                E-mail
-              </label>
-              <div className="relative">
-                <Mail
-                  size={18}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
-                />
-                <input
-                  id="login-email"
-                  type="email"
-                  required
-                  autoFocus
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seuemail@exemplo.com"
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Senha */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label
-                  htmlFor="login-password"
-                  className="text-xs font-bold text-[#0D3B22] uppercase tracking-wide"
-                >
-                  Senha
-                </label>
-                <button
-                  type="button"
-                  id="btn-forgot-password"
-                  onClick={() => {
-                    setForgotEmail(email);
-                    setShowForgot(true);
-                  }}
-                  className="text-xs text-[#22C55E] hover:underline font-semibold"
-                >
-                  Esqueci minha senha
-                </button>
-              </div>
-              <div className="relative">
-                <Lock
-                  size={18}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
-                />
-                <input
-                  id="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Sua senha (mínimo 8 caracteres)"
-                  className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#68736C] hover:text-[#18201B]"
-                  aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            {/* Botão Entrar */}
-            <button
-              type="submit"
-              id="btn-submit-login"
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E]"
-            >
-              <span>{isLoading ? 'Entrando...' : 'Entrar no Poupagaio'}</span>
-              <ArrowRight size={17} />
-            </button>
-          </form>
+            </form>
+          </>
         )}
       </div>
     </div>

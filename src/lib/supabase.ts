@@ -47,7 +47,7 @@ export function isValidEmailFormat(email: string): boolean {
 
 /**
  * Verificação e registro de tentativas de login (Seção 1.5)
- * Bloqueia após 5 tentativas na janela de 10 minutos (600.000 ms)
+ * Bloqueia após 10 tentativas na janela de 10 minutos (600.000 ms)
  */
 export function checkLoginAttempts(email: string): { isBlocked: boolean; remainingMinutes?: number } {
   try {
@@ -74,7 +74,7 @@ export function checkLoginAttempts(email: string): { isBlocked: boolean; remaini
       return { isBlocked: false };
     }
 
-    if (record.count >= 5) {
+    if (record.count >= 10) {
       const blockedUntil = now + TEN_MINUTES_MS;
       record.blockedUntil = blockedUntil;
       attemptsMap[key] = record;
@@ -101,7 +101,7 @@ export function recordFailedLoginAttempt(email: string): { isBlockedNow: boolean
       record = { count: 1, firstAttemptTimestamp: now };
     } else {
       record.count += 1;
-      if (record.count >= 5) {
+      if (record.count >= 10) {
         record.blockedUntil = now + TEN_MINUTES_MS;
       }
     }
@@ -109,7 +109,7 @@ export function recordFailedLoginAttempt(email: string): { isBlockedNow: boolean
     attemptsMap[key] = record;
     localStorage.setItem(STORAGE_KEYS.AUTH_ATTEMPTS, JSON.stringify(attemptsMap));
 
-    return { isBlockedNow: record.count >= 5 };
+    return { isBlockedNow: record.count >= 10 };
   } catch (e) {
     return { isBlockedNow: false };
   }
@@ -500,7 +500,7 @@ export async function updateUserPasswordWithSupabase(newPassword: string): Promi
 /**
  * Atualiza metadados do perfil do usuário no Supabase Auth
  */
-export async function updateUserProfileMetadataWithSupabase(metadata: { full_name?: string; phone?: string }): Promise<{ success: boolean; error?: string }> {
+export async function updateUserProfileMetadataWithSupabase(metadata: { full_name?: string; phone?: string; first_name?: string; last_name?: string }): Promise<{ success: boolean; error?: string }> {
   if (!supabase) {
     return { success: true };
   }
@@ -515,5 +515,169 @@ export async function updateUserProfileMetadataWithSupabase(metadata: { full_nam
     console.error('[Supabase Update Metadata Exception]', err);
     return { success: false, error: err.message };
   }
+}
+
+/**
+ * Normaliza o número de telefone para o formato +5561999999999 (Seção 9)
+ */
+export function normalizePhoneNumber(phone: string): string {
+  if (!phone) return '';
+  // Remove todos os caracteres não numéricos
+  const numeric = phone.replace(/\D/g, '');
+  if (!numeric) return '';
+
+  // Se já tiver o código do país (+55 por exemplo, ou 55)
+  if (numeric.length === 13 && numeric.startsWith('55')) {
+    return `+${numeric}`;
+  }
+  if (numeric.length === 11) {
+    // DDD + 9 + 8 dígitos -> adiciona +55
+    return `+55${numeric}`;
+  }
+  if (numeric.length === 10) {
+    // DDD + 8 dígitos -> adiciona +55
+    return `+55${numeric}`;
+  }
+  
+  if (numeric.startsWith('55')) {
+    return `+${numeric}`;
+  }
+  return `+55${numeric}`;
+}
+
+/**
+ * Realiza o cadastro sem senha (Passwordless OTP / Magic Link) via Supabase Auth (Seção 4)
+ */
+export async function signUpPasswordless(params: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const { firstName, lastName, email, phone } = params;
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!firstName.trim()) {
+    return { success: false, error: 'O nome é obrigatório.' };
+  }
+  if (!lastName.trim()) {
+    return { success: false, error: 'O sobrenome é obrigatório.' };
+  }
+  if (!isValidEmailFormat(normalizedEmail)) {
+    return { success: false, error: 'Formato de e-mail inválido.' };
+  }
+
+  const normalizedPhone = normalizePhoneNumber(phone);
+
+  if (supabase) {
+    try {
+      const officialRedirectUrl = 'https://poupagaiofinancas.vercel.app/auth/callback';
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const redirectUrl = isLocalhost ? `${window.location.origin}/auth/callback` : officialRedirectUrl;
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email: normalizedEmail,
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: redirectUrl,
+          data: {
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+            full_name: `${firstName.trim()} ${lastName.trim()}`,
+            phone: normalizedPhone,
+          },
+        },
+      });
+
+      if (error) {
+        console.error('[Supabase Auth SignUpPasswordless Error]', error);
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Supabase Auth SignUpPasswordless Exception]', err);
+      return { success: false, error: err.message || 'Erro ao comunicar com o Supabase.' };
+    }
+  }
+
+  // Simulação offline/local caso Supabase não esteja configurado
+  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
+  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
+  simulatedUsers[normalizedEmail] = {
+    id: 'user-' + Date.now(),
+    email: normalizedEmail,
+    first_name: firstName.trim(),
+    last_name: lastName.trim(),
+    full_name: `${firstName.trim()} ${lastName.trim()}`,
+    phone: normalizedPhone,
+    email_confirmed: true,
+    created_at: new Date().toISOString(),
+  };
+  localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
+
+  return { success: true };
+}
+
+/**
+ * Realiza o login sem senha (Passwordless OTP / Magic Link) via Supabase Auth (Seção 10)
+ */
+export async function signInPasswordless(email: string): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!isValidEmailFormat(normalizedEmail)) {
+    return { success: false, error: 'Formato de e-mail inválido.' };
+  }
+
+  if (supabase) {
+    try {
+      const officialRedirectUrl = 'https://poupagaiofinancas.vercel.app/auth/callback';
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+      const redirectUrl = isLocalhost ? `${window.location.origin}/auth/callback` : officialRedirectUrl;
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email: normalizedEmail,
+        options: {
+          shouldCreateUser: false, // Só faz login se já existir
+          emailRedirectTo: redirectUrl,
+        },
+      });
+
+      if (error) {
+        console.error('[Supabase Auth SignInPasswordless Error]', error);
+        // Proteção contra enumeração de usuários (Seção 22)
+        if (error.message.includes('signup') || error.message.includes('not found') || error.status === 400) {
+          return { success: true };
+        }
+        return { success: false, error: error.message };
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('[Supabase Auth SignInPasswordless Exception]', err);
+      return { success: false, error: err.message || 'Erro ao enviar e-mail de acesso.' };
+    }
+  }
+
+  // Simulação offline/local caso Supabase não esteja configurado
+  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
+  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
+  if (!simulatedUsers[normalizedEmail]) {
+    if (normalizedEmail !== 'mateus@email.com' && normalizedEmail !== 'luana@email.com') {
+      return { success: true };
+    }
+  }
+
+  return { success: true };
 }
 
