@@ -8,9 +8,18 @@ import { formatCurrency } from '../../lib/calculations';
 interface InstallmentModalProps {
   isOpen: boolean;
   onClose: () => void;
+  prefill?: {
+    description?: string;
+    totalAmount?: number;
+    categoryId?: string;
+  };
 }
 
-export const InstallmentModal: React.FC<InstallmentModalProps> = ({ isOpen, onClose }) => {
+export const InstallmentModal: React.FC<InstallmentModalProps> = ({
+  isOpen,
+  onClose,
+  prefill,
+}) => {
   const { currentSpace, categories, addInstallmentPurchase } = useFinance();
 
   const [description, setDescription] = useState('');
@@ -20,6 +29,26 @@ export const InstallmentModal: React.FC<InstallmentModalProps> = ({ isOpen, onCl
   const [firstDueDate, setFirstDueDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [categoryId, setCategoryId] = useState('');
   const [notes, setNotes] = useState('');
+
+  React.useEffect(() => {
+    if (isOpen) {
+      if (prefill) {
+        setDescription(prefill.description || '');
+        const tot = prefill.totalAmount || 0;
+        setTotalAmount(tot);
+        setCategoryId(prefill.categoryId || '');
+        setInstallmentAmount(tot > 0 ? Math.round((tot / installmentsCount) * 100) / 100 : 0);
+      } else {
+        setDescription('');
+        setTotalAmount(0);
+        setInstallmentsCount(3);
+        setInstallmentAmount(0);
+        setFirstDueDate(new Date().toISOString().slice(0, 10));
+        setCategoryId('');
+        setNotes('');
+      }
+    }
+  }, [isOpen, prefill]);
 
   // Sincronização inteligente de valores
   const handleTotalChange = (total: number) => {
@@ -69,13 +98,16 @@ export const InstallmentModal: React.FC<InstallmentModalProps> = ({ isOpen, onCl
   return (
     <div
       id="installment-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
     >
       <div
         id="installment-modal-content"
-        className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[92vh] animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 duration-200"
       >
-        <div className="flex items-center justify-between p-5 border-b border-[#DDE8E0]">
+        {/* Mobile drag handle indicator */}
+        <div className="sm:hidden w-10 h-1 bg-[#DDE8E0] rounded-full mx-auto mt-2.5" />
+
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#DDE8E0]">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
               <CreditCard size={20} />

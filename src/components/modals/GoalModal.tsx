@@ -9,9 +9,16 @@ interface GoalModalProps {
   isOpen: boolean;
   onClose: () => void;
   goalToEdit?: Goal | null;
+  editingGoal?: Goal | null;
 }
 
-export const GoalModal: React.FC<GoalModalProps> = ({ isOpen, onClose, goalToEdit }) => {
+export const GoalModal: React.FC<GoalModalProps> = ({
+  isOpen,
+  onClose,
+  goalToEdit,
+  editingGoal,
+}) => {
+  const activeGoal = goalToEdit || editingGoal;
   const { currentSpace, addGoal, updateGoal } = useFinance();
 
   const [name, setName] = useState('');
@@ -21,12 +28,12 @@ export const GoalModal: React.FC<GoalModalProps> = ({ isOpen, onClose, goalToEdi
   const [color, setColor] = useState('#22C55E');
 
   useEffect(() => {
-    if (goalToEdit) {
-      setName(goalToEdit.name);
-      setTargetAmount(goalToEdit.target_amount);
-      setDeadline(goalToEdit.deadline || '');
-      setCategory(goalToEdit.category || 'Reserva');
-      setColor(goalToEdit.color || '#22C55E');
+    if (activeGoal) {
+      setName(activeGoal.name);
+      setTargetAmount(activeGoal.target_amount);
+      setDeadline(activeGoal.deadline || '');
+      setCategory(activeGoal.category || 'Reserva');
+      setColor(activeGoal.color || '#22C55E');
     } else {
       setName('');
       setTargetAmount(0);
@@ -34,7 +41,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({ isOpen, onClose, goalToEdi
       setCategory('Reserva');
       setColor('#22C55E');
     }
-  }, [goalToEdit, isOpen]);
+  }, [activeGoal, isOpen]);
 
   if (!isOpen) return null;
 
@@ -42,8 +49,8 @@ export const GoalModal: React.FC<GoalModalProps> = ({ isOpen, onClose, goalToEdi
     e.preventDefault();
     if (!name.trim() || targetAmount <= 0 || !currentSpace) return;
 
-    if (goalToEdit) {
-      updateGoal(goalToEdit.id, {
+    if (activeGoal) {
+      updateGoal(activeGoal.id, {
         name,
         target_amount: targetAmount,
         deadline: deadline || undefined,
@@ -72,20 +79,23 @@ export const GoalModal: React.FC<GoalModalProps> = ({ isOpen, onClose, goalToEdi
   return (
     <div
       id="goal-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
     >
       <div
         id="goal-modal-content"
-        className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col"
+        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[92vh] animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 duration-200"
       >
-        <div className="flex items-center justify-between p-5 border-b border-[#DDE8E0]">
+        {/* Mobile handle */}
+        <div className="sm:hidden w-10 h-1 bg-[#DDE8E0] rounded-full mx-auto mt-2.5" />
+
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#DDE8E0]">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
               <Target size={20} />
             </div>
             <div>
               <h3 className="text-lg font-bold text-[#0D3B22]">
-                {goalToEdit ? 'Editar Meta' : 'Nova Meta Financeira'}
+                {activeGoal ? 'Editar Meta' : 'Nova Meta Financeira'}
               </h3>
               <p className="text-xs text-[#68736C]">Defina seu objetivo e acompanhe o progresso</p>
             </div>

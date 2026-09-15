@@ -36,6 +36,7 @@ import { ReopenMonthModal } from './components/modals/ReopenMonthModal';
 import { SpaceModal } from './components/modals/SpaceModal';
 import { InviteModal } from './components/modals/InviteModal';
 import { NotificationsModal } from './components/modals/NotificationsModal';
+import { ToastNotification } from './components/common/ToastNotification';
 
 const AppContent: React.FC = () => {
   const { currentUser, isOnboarded, selectedMonth } = useFinance();
@@ -182,7 +183,7 @@ const AppContent: React.FC = () => {
       />
 
       {/* Área Principal de Conteúdo */}
-      <div className="flex-1 flex flex-col min-w-0 pb-20 lg:pb-8">
+      <div className="flex-1 flex flex-col min-w-0 pb-28 lg:pb-8">
         {/* Header Superior */}
         <Header
           onOpenNotifications={() => setIsNotificationsModalOpen(true)}
@@ -192,7 +193,7 @@ const AppContent: React.FC = () => {
         />
 
         {/* Visualização Ativa */}
-        <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main className="flex-1 px-3.5 py-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
           {currentTab === 'dashboard' && (
             <DashboardView
               onOpenQuickAdd={() => setIsQuickAddOpen(true)}
@@ -390,6 +391,8 @@ const AppContent: React.FC = () => {
         isOpen={isNotificationsModalOpen}
         onClose={() => setIsNotificationsModalOpen(false)}
       />
+
+      <ToastNotification />
     </div>
   );
 };

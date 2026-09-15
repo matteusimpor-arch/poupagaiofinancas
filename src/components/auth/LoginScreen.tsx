@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useFinance } from '../../context/FinanceContext';
 import { PoupagaioLogo } from '../common/PoupagaioLogo';
+import {
+  checkLoginAttempts,
+  isValidEmailFormat,
+  loginUserWithSupabase,
+  resendConfirmationEmail,
+} from '../../lib/supabase';
 
 interface LoginScreenProps {
   onSwitchToRegister: () => void;
@@ -9,14 +15,18 @@ interface LoginScreenProps {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) => {
   const { login, loginWithGoogle } = useFinance();
-  const [email, setEmail] = useState('mateus@email.com');
-  const [password, setPassword] = useState('poupagaio123');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-  const [forgotSent, setForgotSent] = useState(false);
+
+  // Esqueci minha senha (Seção 1.6)
   const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
     setError(null);
@@ -37,31 +47,60 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
     e.preventDefault();
     setError(null);
 
+    // 1.5 Verificação de bloqueio por excesso de tentativas
+    const attemptCheck = checkLoginAttempts(email);
+    if (attemptCheck.isBlocked) {
+      setError('Muitas tentativas. Aguarde alguns minutos e tente novamente.');
+      return;
+    }
+
+    if (!isValidEmailFormat(email)) {
+      setError('E-mail ou senha incorretos.');
+      return;
+    }
+
     if (password.length < 8) {
-      setError('A senha deve possuir no mínimo 8 caracteres.');
+      setError('E-mail ou senha incorretos.');
       return;
     }
 
     setIsLoading(true);
     try {
-      const ok = await login(email, password);
-      if (!ok) {
-        setError('E-mail ou senha inválidos.');
+      // Tenta login com verificação de segurança Supabase/Local
+      const res = await loginUserWithSupabase(email, password);
+
+      if (!res.success) {
+        setError(res.error || 'E-mail ou senha incorretos.');
+        setIsLoading(false);
+        return;
       }
+
+      // Conclui login no FinanceContext
+      await login(email, password);
     } catch (err) {
-      setError('Erro ao autenticar. Tente novamente.');
+      setError('E-mail ou senha incorretos.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleForgotPassword = (e: React.FormEvent) => {
+  const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setForgotSent(true);
-    setTimeout(() => {
-      setShowForgot(false);
-      setForgotSent(false);
-    }, 3000);
+    setError(null);
+    if (!isValidEmailFormat(forgotEmail)) {
+      setError('Por favor, informe um endereço de e-mail válido.');
+      return;
+    }
+
+    setForgotLoading(true);
+    try {
+      await resendConfirmationEmail(forgotEmail);
+      setForgotSent(true);
+    } catch (e) {
+      setForgotSent(true);
+    } finally {
+      setForgotLoading(false);
+    }
   };
 
   return (
@@ -74,7 +113,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
         <div className="flex flex-col items-center text-center space-y-2">
           <PoupagaioLogo size="lg" showSlogan={true} />
           <p className="text-xs text-[#68736C] pt-2 max-w-xs">
-            Acesse seu controle financeiro simples, amigável e compartilhado
+            Organize hoje. Voe mais longe.
           </p>
         </div>
 
@@ -98,41 +137,60 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
         </div>
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700">
-            {error}
+          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
+            <AlertCircle size={16} className="shrink-0 mt-0.5" />
+            <span>{error}</span>
           </div>
         )}
 
         {showForgot ? (
           <form onSubmit={handleForgotPassword} className="space-y-4">
-            <h3 className="text-base font-bold text-[#0D3B22]">Recuperação de Senha</h3>
-            <p className="text-xs text-[#68736C]">
-              Informe seu e-mail cadastrado e enviaremos um link de redefinição com segurança.
-            </p>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-[#0D3B22]">Recuperação de Senha</h3>
+              <p className="text-xs text-[#68736C] leading-relaxed">
+                Informe seu e-mail cadastrado e enviaremos um link seguro para redefinição.
+              </p>
+            </div>
 
             {forgotSent ? (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800 flex items-center gap-2">
-                <CheckCircle2 size={16} /> Link de redefinição enviado para seu e-mail!
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs font-semibold text-emerald-800 space-y-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={18} className="text-[#22C55E]" />
+                  <span>Link enviado com sucesso!</span>
+                </div>
+                <p className="text-[11px] text-[#68736C] font-normal">
+                  Verifique sua caixa de entrada e a pasta de spam.
+                </p>
               </div>
             ) : (
               <div>
-                <label className="block text-xs font-bold text-[#68736C] uppercase mb-1">
+                <label className="block text-xs font-bold text-[#0D3B22] uppercase mb-1">
                   E-mail
                 </label>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#DDE8E0] text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
-                />
+                <div className="relative">
+                  <Mail
+                    size={18}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#68736C]"
+                  />
+                  <input
+                    type="email"
+                    required
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="seuemail@exemplo.com"
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#DDE8E0] text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
+                  />
+                </div>
               </div>
             )}
 
             <div className="flex items-center justify-between pt-2">
               <button
                 type="button"
-                onClick={() => setShowForgot(false)}
+                onClick={() => {
+                  setShowForgot(false);
+                  setForgotSent(false);
+                }}
                 className="text-xs font-bold text-[#68736C] hover:underline"
               >
                 Voltar ao login
@@ -140,9 +198,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
               {!forgotSent && (
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#22C55E] hover:bg-[#16a34a] text-white text-xs font-bold rounded-xl"
+                  disabled={forgotLoading}
+                  className="py-2 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-xs rounded-xl shadow-xs transition-all"
                 >
-                  Enviar Link
+                  {forgotLoading ? 'Enviando...' : 'Enviar Link'}
                 </button>
               )}
             </div>
@@ -180,14 +239,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
               <div className="flex items-center justify-between mb-1">
                 <label
                   htmlFor="login-password"
-                  className="block text-xs font-bold text-[#0D3B22] uppercase tracking-wide"
+                  className="text-xs font-bold text-[#0D3B22] uppercase tracking-wide"
                 >
                   Senha
                 </label>
                 <button
                   type="button"
-                  onClick={() => setShowForgot(true)}
-                  className="text-[11px] font-semibold text-[#22C55E] hover:underline"
+                  id="btn-forgot-password"
+                  onClick={() => {
+                    setForgotEmail(email);
+                    setShowForgot(true);
+                  }}
+                  className="text-xs text-[#22C55E] hover:underline font-semibold"
                 >
                   Esqueci minha senha
                 </button>
@@ -203,20 +266,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 8 caracteres"
+                  placeholder="Sua senha (mínimo 8 caracteres)"
                   className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#DDE8E0] bg-white text-[#18201B] placeholder-[#68736C]/60 text-sm font-medium focus:ring-2 focus:ring-[#22C55E] focus:outline-none"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-[#68736C] hover:text-[#18201B]"
+                  aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
             </div>
 
-            {/* Botão de Entrar */}
+            {/* Botão Entrar */}
             <button
               type="submit"
               id="btn-submit-login"
@@ -227,7 +291,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
               <ArrowRight size={17} />
             </button>
 
-            {/* Divisor ou */}
+            {/* Divisor */}
             <div className="relative flex items-center justify-center my-2">
               <div className="border-t border-[#DDE8E0] w-full" />
               <span className="bg-white px-3 text-[11px] font-bold text-[#68736C] uppercase tracking-wider">
@@ -236,7 +300,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
               <div className="border-t border-[#DDE8E0] w-full" />
             </div>
 
-            {/* Botão Google Firebase */}
+            {/* Botão Google */}
             <button
               type="button"
               id="btn-google-login"
@@ -262,53 +326,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              <span>{isGoogleLoading ? 'Conectando...' : 'Continuar com Google (Firebase)'}</span>
+              <span>{isGoogleLoading ? 'Conectando...' : 'Entrar com Google'}</span>
             </button>
           </form>
         )}
-
-        {/* Demo Fast Login Buttons */}
-        <div className="pt-2 border-t border-[#DDE8E0]/70 space-y-2">
-          <span className="block text-center text-[11px] font-bold text-[#68736C] uppercase">
-            Acesso Rápido para Avaliação
-          </span>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('mateus@email.com');
-                setPassword('poupagaio123');
-              }}
-              className="px-2 py-1.5 rounded-lg border border-[#DDE8E0] bg-[#F6FAF7] hover:bg-emerald-50 text-[11px] font-bold text-[#0D3B22] transition-colors"
-            >
-              👤 Mateus (Admin)
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEmail('luana@email.com');
-                setPassword('poupagaio123');
-              }}
-              className="px-2 py-1.5 rounded-lg border border-[#DDE8E0] bg-[#F6FAF7] hover:bg-emerald-50 text-[11px] font-bold text-[#0D3B22] transition-colors"
-            >
-              👤 Luana (Parceira)
-            </button>
-          </div>
-        </div>
-
-        {/* Link para Cadastro */}
-        <div className="text-center pt-1">
-          <p className="text-xs text-[#68736C]">
-            Ainda não tem conta?{' '}
-            <button
-              type="button"
-              onClick={onSwitchToRegister}
-              className="font-bold text-[#22C55E] hover:underline"
-            >
-              Criar conta gratuita
-            </button>
-          </p>
-        </div>
       </div>
     </div>
   );

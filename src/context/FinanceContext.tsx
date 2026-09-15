@@ -56,7 +56,7 @@ interface FinanceContextType {
   isOnboarded: boolean;
   login: (email: string, pass: string) => Promise<boolean>;
   loginWithGoogle: () => Promise<boolean>;
-  signup: (name: string, email: string, pass: string) => Promise<boolean>;
+  signup: (name: string, email: string, pass: string, phone?: string) => Promise<boolean>;
   logout: () => void;
   updateProfile: (data: Partial<Profile>) => void;
   changePassword: (newPass: string) => Promise<boolean>;
@@ -99,7 +99,12 @@ interface FinanceContextType {
     recurrenceScope?: 'only_this_month' | 'this_and_future'
   ) => void;
   deleteTransaction: (id: string) => void;
-  markTransactionAsPaid: (id: string, paidDate?: string) => void;
+  markTransactionAsPaid: (
+    id: string,
+    paidDate?: string,
+    paidAmount?: number,
+    updateFutureRecurring?: boolean
+  ) => void;
 
   // Parcelamentos
   installmentPurchases: InstallmentPurchase[];
@@ -108,6 +113,21 @@ interface FinanceContextType {
     data: Omit<InstallmentPurchase, 'id' | 'created_at' | 'created_by'>
   ) => Promise<void>;
   anticipateInstallment: (installmentId: string) => void;
+  payInstallment: (
+    installmentId: string,
+    paidDate?: string,
+    paidAmount?: number
+  ) => void;
+  updateInstallment: (
+    installmentId: string,
+    data: Partial<Installment>,
+    applyTo?: 'single' | 'future'
+  ) => void;
+  deleteInstallment: (
+    installmentId: string,
+    applyTo?: 'single' | 'future'
+  ) => void;
+  deleteInstallmentPurchase: (purchaseId: string) => void;
 
   // Investimentos
   investments: Investment[];
@@ -157,6 +177,14 @@ interface FinanceContextType {
   // Auditoria
   auditLogs: AuditLog[];
 
+  // Toast Feedback
+  toast: {
+    message: string;
+    type: 'success' | 'info' | 'error';
+  } | null;
+  showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
+  dismissToast: () => void;
+
   // Utilitários de Estado
   resetToMockData: () => void;
   resetDemoData: () => void;
@@ -192,6 +220,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
+        if (parsed && parsed.full_name === 'Mateus Silva') {
+          parsed.full_name = 'Mateus Araujo';
+          localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(parsed));
+        }
         return parsed;
       } catch (e) {
         return null;
@@ -296,6 +328,23 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const saved = localStorage.getItem(STORAGE_KEYS.AUDIT);
     return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
   });
+
+  // 14. Toast Feedback
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'info' | 'error';
+  } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast((prev) => (prev?.message === message ? null : prev));
+    }, 3200);
+  };
+
+  const dismissToast = () => {
+    setToast(null);
+  };
 
   // Sincronização LocalStorage
   useEffect(() => {
@@ -496,7 +545,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
-  const signup = async (name: string, email: string, pass: string): Promise<boolean> => {
+  const signup = async (name: string, email: string, pass: string, phone?: string): Promise<boolean> => {
     if (!name.trim() || !email.trim() || pass.length < 8) return false;
     let newUserId = 'user-' + Date.now();
     try {
@@ -512,6 +561,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       id: newUserId,
       email: email.trim().toLowerCase(),
       full_name: name.trim(),
+      phone: phone?.trim(),
       due_alert_days: 3,
       created_at: new Date().toISOString(),
     };
@@ -773,15 +823,19 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setTransactions((prev) => [newTx, ...prev]);
     saveToFirestore('transactions', newTx.id, newTx);
 
-    // Se for recorrente, gerar lançamentos para os próximos meses conforme Seção 11
+    // Se for recorrente, gerar lançamentos para os próximos 12 meses (Seção 5.2)
     if (data.is_recurring) {
       const futureTxs: Transaction[] = [];
       const [y, m, d] = data.due_date.split('-').map(Number);
-      for (let i = 1; i <= 3; i++) {
-        const nextDate = new Date(y, m - 1 + i, d);
-        const nextDateStr = nextDate.toISOString().slice(0, 10);
-        const nextMonthStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
-        
+      for (let i = 1; i <= 12; i++) {
+        const totalMonthOffset = (m - 1) + i;
+        const targetYear = y + Math.floor(totalMonthOffset / 12);
+        const targetMonthIndex = totalMonthOffset % 12;
+        const daysInTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0).getDate();
+        const targetDay = Math.min(d, daysInTargetMonth);
+        const nextMonthStr = `${targetYear}-${String(targetMonthIndex + 1).padStart(2, '0')}`;
+        const nextDateStr = `${targetYear}-${String(targetMonthIndex + 1).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}`;
+
         const fTx: Transaction = {
           ...newTx,
           id: 'tx-rec-' + Date.now() + '-' + i,
@@ -801,6 +855,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       amount: data.amount,
       type: data.type,
     });
+    showToast('Lançamento adicionado com sucesso!');
     return newTx;
   };
 
@@ -829,6 +884,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     );
     logAudit(`Lançamento editado: ${id}`, 'transactions', id, data);
+    showToast('Lançamento atualizado!');
   };
 
   const deleteTransaction = (id: string) => {
@@ -836,15 +892,27 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setTransactions((prev) => prev.filter((t) => t.id !== id));
     deleteFromFirestore('transactions', id);
     logAudit(`Lançamento excluído: ${tx?.description || id}`, 'transactions', id);
+    showToast('Lançamento excluído!');
   };
 
-  const markTransactionAsPaid = (id: string, paidDate?: string) => {
+  const markTransactionAsPaid = (
+    id: string,
+    paidDate?: string,
+    paidAmount?: number,
+    updateFutureRecurring: boolean = false
+  ) => {
     const effectiveDate = paidDate || new Date().toISOString().slice(0, 10);
+    const targetTx = transactions.find((t) => t.id === id);
+    if (!targetTx) return;
+
+    const newAmount = paidAmount !== undefined ? paidAmount : targetTx.amount;
+
     setTransactions((prev) =>
       prev.map((t) => {
         if (t.id === id) {
-          const updated = {
+          const updated: Transaction = {
             ...t,
+            amount: newAmount,
             status: 'paid' as const,
             payment_date: effectiveDate,
             paid_by: currentUser?.id,
@@ -854,13 +922,38 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           saveToFirestore('transactions', id, updated);
           return updated;
         }
+
+        // Se marcou para atualizar valor previsto nas recorrências futuras (Seção 5.6)
+        if (
+          updateFutureRecurring &&
+          targetTx.is_recurring &&
+          t.description === targetTx.description &&
+          t.type === targetTx.type &&
+          t.due_date > targetTx.due_date &&
+          t.status !== 'paid'
+        ) {
+          const updated: Transaction = {
+            ...t,
+            amount: newAmount,
+            updated_at: new Date().toISOString(),
+          };
+          saveToFirestore('transactions', t.id, updated);
+          return updated;
+        }
+
         return t;
       })
     );
-    logAudit(`Conta marcada como paga: ${id}`, 'transactions', id, { payment_date: effectiveDate });
+    logAudit(
+      `Conta marcada como paga: ${targetTx.description} (R$ ${newAmount})`,
+      'transactions',
+      id,
+      { payment_date: effectiveDate, amount: newAmount }
+    );
+    showToast('Pagamento registrado com sucesso!');
   };
 
-  // Funções de Parcelamentos
+  // Funções de Parcelamentos (Seção 3)
   const addInstallmentPurchase = async (
     data: Omit<InstallmentPurchase, 'id' | 'created_at' | 'created_by'>
   ) => {
@@ -874,26 +967,48 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setInstallmentPurchases((prev) => [purchase, ...prev]);
 
-    // Gerar as N parcelas nos meses correspondentes
+    // 3.2 e 3.3 Distribuição de centavos no cálculo e datas sem fuso horário
+    const count = data.installments_count;
+    const totalCents = Math.round(data.total_amount * 100);
+    const baseInstallmentCents = Math.floor(totalCents / count);
+    const remainderCents = totalCents - (baseInstallmentCents * count);
+
     const generatedInstallments: Installment[] = [];
     const [y, m, d] = data.first_due_date.split('-').map(Number);
 
-    for (let i = 1; i <= data.installments_count; i++) {
-      const dueDate = new Date(y, m - 1 + (i - 1), d);
-      const dueDateStr = dueDate.toISOString().slice(0, 10);
-      const refMonth = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}`;
+    for (let i = 1; i <= count; i++) {
+      const totalMonthOffset = (m - 1) + (i - 1);
+      const targetYear = y + Math.floor(totalMonthOffset / 12);
+      const targetMonthIndex = totalMonthOffset % 12;
+      const daysInTargetMonth = new Date(targetYear, targetMonthIndex + 1, 0).getDate();
+      const targetDay = Math.min(d, daysInTargetMonth);
+
+      const targetMonthStr = String(targetMonthIndex + 1).padStart(2, '0');
+      const targetDayStr = String(targetDay).padStart(2, '0');
+      const dueDateStr = `${targetYear}-${targetMonthStr}-${targetDayStr}`;
+      const refMonth = `${targetYear}-${targetMonthStr}`;
+
+      // A 1ª parcela absorve a diferença de centavos para garantir que a soma feche perfeitamente
+      const installmentCents = i === 1 ? baseInstallmentCents + remainderCents : baseInstallmentCents;
+      const instAmount = installmentCents / 100;
 
       generatedInstallments.push({
         id: `inst-${purchaseId}-${i}`,
         space_id: data.space_id,
         purchase_id: purchaseId,
-        purchase_description: `${data.description} (${i}/${data.installments_count})`,
+        purchase_description: `${data.description} (${i}/${count})`,
         installment_number: i,
-        total_installments: data.installments_count,
-        amount: data.installment_amount,
+        total_installments: count,
+        amount: instAmount,
         due_date: dueDateStr,
         reference_month: refMonth,
-        status: computeAccountStatus(dueDateStr, undefined, false, false, currentUser?.due_alert_days || 3),
+        status: computeAccountStatus(
+          dueDateStr,
+          undefined,
+          false,
+          false,
+          currentUser?.due_alert_days || 3
+        ),
         category_id: data.category_id,
       });
     }
@@ -902,21 +1017,31 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveToFirestore('installment_purchases', purchaseId, purchase);
     generatedInstallments.forEach((inst) => saveToFirestore('installments', inst.id, inst));
     logAudit(
-      `Compra parcelada criada: ${data.description} (${data.installments_count}x)`,
+      `Compra parcelada criada: ${data.description} (${count}x de R$ ${(baseInstallmentCents / 100).toFixed(2)})`,
       'installment_purchases',
       purchaseId
     );
+    showToast('Compra parcelada cadastrada!');
   };
 
   const anticipateInstallment = (installmentId: string) => {
-    const today = new Date().toISOString().slice(0, 10);
+    payInstallment(installmentId);
+  };
+
+  const payInstallment = (
+    installmentId: string,
+    paidDate?: string,
+    paidAmount?: number
+  ) => {
+    const effectiveDate = paidDate || new Date().toISOString().slice(0, 10);
     setInstallments((prev) =>
       prev.map((i) => {
         if (i.id === installmentId) {
-          const updated = {
+          const updated: Installment = {
             ...i,
             status: 'paid' as const,
-            paid_date: today,
+            amount: paidAmount !== undefined ? paidAmount : i.amount,
+            paid_date: effectiveDate,
             paid_by: currentUser?.id,
           };
           saveToFirestore('installments', installmentId, updated);
@@ -925,7 +1050,76 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return i;
       })
     );
-    logAudit(`Parcela antecipada: ${installmentId}`, 'installments', installmentId);
+    logAudit(`Parcela paga: ${installmentId}`, 'installments', installmentId);
+    showToast('Parcela paga com sucesso!');
+  };
+
+  const updateInstallment = (
+    installmentId: string,
+    data: Partial<Installment>,
+    applyTo: 'single' | 'future' = 'single'
+  ) => {
+    const targetInst = installments.find((i) => i.id === installmentId);
+    if (!targetInst) return;
+
+    setInstallments((prev) =>
+      prev.map((inst) => {
+        if (inst.id === installmentId) {
+          const updated = { ...inst, ...data };
+          saveToFirestore('installments', inst.id, updated);
+          return updated;
+        }
+        if (
+          applyTo === 'future' &&
+          inst.purchase_id === targetInst.purchase_id &&
+          inst.installment_number > targetInst.installment_number &&
+          inst.status !== 'paid'
+        ) {
+          const updated = {
+            ...inst,
+            ...(data.amount !== undefined ? { amount: data.amount } : {}),
+            ...(data.category_id !== undefined ? { category_id: data.category_id } : {}),
+          };
+          saveToFirestore('installments', inst.id, updated);
+          return updated;
+        }
+        return inst;
+      })
+    );
+    logAudit(`Parcela editada: ${installmentId} (${applyTo})`, 'installments', installmentId);
+  };
+
+  const deleteInstallment = (
+    installmentId: string,
+    applyTo: 'single' | 'future' = 'single'
+  ) => {
+    const targetInst = installments.find((i) => i.id === installmentId);
+    if (!targetInst) return;
+
+    setInstallments((prev) => {
+      const remaining = prev.filter((inst) => {
+        if (inst.id === installmentId) return false;
+        if (
+          applyTo === 'future' &&
+          inst.purchase_id === targetInst.purchase_id &&
+          inst.installment_number > targetInst.installment_number
+        ) {
+          deleteFromFirestore('installments', inst.id);
+          return false;
+        }
+        return true;
+      });
+      deleteFromFirestore('installments', installmentId);
+      return remaining;
+    });
+    logAudit(`Parcela excluída: ${installmentId} (${applyTo})`, 'installments', installmentId);
+  };
+
+  const deleteInstallmentPurchase = (purchaseId: string) => {
+    setInstallmentPurchases((prev) => prev.filter((p) => p.id !== purchaseId));
+    setInstallments((prev) => prev.filter((i) => i.purchase_id !== purchaseId));
+    deleteFromFirestore('installment_purchases', purchaseId);
+    logAudit(`Compra parcelada excluída: ${purchaseId}`, 'installment_purchases', purchaseId);
   };
 
   // Funções de Investimentos
@@ -938,6 +1132,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setInvestments((prev) => [newInv, ...prev]);
     saveToFirestore('investments', newInv.id, newInv);
     logAudit(`Investimento cadastrado: ${data.name}`, 'investments', newInv.id);
+    showToast('Investimento salvo com sucesso!');
   };
 
   const updateInvestment = (id: string, data: Partial<Investment>) => {
@@ -950,6 +1145,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return inv;
     }));
     logAudit(`Investimento atualizado: ${id}`, 'investments', id);
+    showToast('Investimento atualizado!');
   };
 
   const addInvestmentMovement = (
@@ -988,6 +1184,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setGoals((prev) => [newGoal, ...prev]);
     saveToFirestore('goals', newGoal.id, newGoal);
     logAudit(`Meta criada: ${data.name}`, 'goals', newGoal.id);
+    showToast('Meta financeira cadastrada!');
   };
 
   const updateGoal = (id: string, data: Partial<Goal>) => {
@@ -999,6 +1196,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       return g;
     }));
+    showToast('Meta atualizada!');
   };
 
   const depositToGoal = (goalId: string, amount: number, notes?: string): boolean => {
@@ -1102,6 +1300,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setWishlist((prev) => [newItem, ...prev]);
     saveToFirestore('wishlist', newItem.id, newItem);
     logAudit(`Desejo adicionado: ${data.name}`, 'wishlist_items', newItem.id);
+    showToast('Item salvo na lista de desejos!');
   };
 
   const updateWishlistItem = (id: string, data: Partial<WishlistItem>) => {
@@ -1362,6 +1561,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         clearAllNotifications,
 
         auditLogs: auditLogs.filter((a) => a.space_id === currentSpace?.id),
+
+        toast,
+        showToast,
+        dismissToast,
 
         resetToMockData,
         resetDemoData: resetToMockData,

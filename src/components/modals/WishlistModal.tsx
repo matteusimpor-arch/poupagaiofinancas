@@ -81,13 +81,16 @@ export const WishlistModal: React.FC<WishlistModalProps> = ({
   return (
     <div
       id="wishlist-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
     >
       <div
         id="wishlist-modal-content"
-        className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col"
+        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[92vh] animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 duration-200"
       >
-        <div className="flex items-center justify-between p-5 border-b border-[#DDE8E0]">
+        {/* Mobile handle */}
+        <div className="sm:hidden w-10 h-1 bg-[#DDE8E0] rounded-full mx-auto mt-2.5" />
+
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#DDE8E0]">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-pink-50 text-pink-600">
               <Heart size={20} />

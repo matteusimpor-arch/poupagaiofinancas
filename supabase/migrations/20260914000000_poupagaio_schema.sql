@@ -492,3 +492,47 @@ CREATE POLICY "Users can view and manage their own notifications"
 CREATE POLICY "Users can view audit logs for spaces they participate in"
     ON public.audit_logs FOR SELECT
     USING (public.is_space_member(space_id, auth.uid()));
+
+-- Políticas CATEGORIES
+CREATE POLICY "Members can view categories in their space"
+    ON public.categories FOR SELECT
+    USING (space_id IS NULL OR public.is_space_member(space_id, auth.uid()));
+
+CREATE POLICY "Members can manage categories in their space"
+    ON public.categories FOR ALL
+    USING (space_id IS NOT NULL AND public.is_space_member(space_id, auth.uid()));
+
+-- Políticas ACCOUNTS
+CREATE POLICY "Members can view and manage accounts in their space"
+    ON public.accounts FOR ALL
+    USING (public.is_space_member(space_id, auth.uid()));
+
+-- Políticas CREDIT_CARDS
+CREATE POLICY "Members can view and manage credit cards in their space"
+    ON public.credit_cards FOR ALL
+    USING (public.is_space_member(space_id, auth.uid()));
+
+-- Políticas RECURRING_TRANSACTIONS
+CREATE POLICY "Members can view and manage recurring transactions in their space"
+    ON public.recurring_transactions FOR ALL
+    USING (public.is_space_member(space_id, auth.uid()));
+
+-- Políticas INSTALLMENT_PURCHASES
+CREATE POLICY "Members can view and manage installment purchases in their space"
+    ON public.installment_purchases FOR ALL
+    USING (public.is_space_member(space_id, auth.uid()));
+
+-- Políticas INSTALLMENTS
+CREATE POLICY "Members can view and manage installments in their space"
+    ON public.installments FOR ALL
+    USING (public.is_space_member(space_id, auth.uid()));
+
+-- Políticas WISHLIST_ITEMS
+CREATE POLICY "Members can view and manage wishlist items in their space"
+    ON public.wishlist_items FOR ALL
+    USING (public.is_space_member(space_id, auth.uid()));
+
+-- Políticas MONTHLY_PLANS
+CREATE POLICY "Members can view and manage monthly plans in their space"
+    ON public.monthly_plans FOR ALL
+    USING (public.is_space_member(space_id, auth.uid()));

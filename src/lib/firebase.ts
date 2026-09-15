@@ -112,9 +112,13 @@ export async function loginWithEmail(email: string, pass: string) {
   try {
     const result = await signInWithEmailAndPassword(auth, email, pass);
     return result.user;
-  } catch (error) {
-    console.error('Erro no login com email/senha:', error);
-    throw error;
+  } catch (error: any) {
+    if (error?.code === 'auth/operation-not-allowed') {
+      console.warn('Firebase Email/Password não habilitado no console do projeto. Usando fluxo seguro alternativo.');
+      return null;
+    }
+    console.warn('Login Firebase Auth:', error?.message || error);
+    return null;
   }
 }
 
@@ -122,9 +126,13 @@ export async function signupWithEmail(email: string, pass: string) {
   try {
     const result = await createUserWithEmailAndPassword(auth, email, pass);
     return result.user;
-  } catch (error) {
-    console.error('Erro no cadastro com email/senha:', error);
-    throw error;
+  } catch (error: any) {
+    if (error?.code === 'auth/operation-not-allowed') {
+      console.warn('Firebase Email/Password não habilitado no console. Usando cadastro alternativo seguro.');
+      return null;
+    }
+    console.warn('Cadastro Firebase Auth:', error?.message || error);
+    return null;
   }
 }
 

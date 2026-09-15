@@ -9,13 +9,16 @@ interface InvestmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   investmentToEdit?: Investment | null;
+  editingInvestment?: Investment | null;
 }
 
 export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   isOpen,
   onClose,
   investmentToEdit,
+  editingInvestment,
 }) => {
+  const activeInvestment = investmentToEdit || editingInvestment;
   const { currentSpace, addInvestment, updateInvestment } = useFinance();
 
   const [name, setName] = useState('');
@@ -30,15 +33,15 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
-    if (investmentToEdit) {
-      setName(investmentToEdit.name);
-      setType(investmentToEdit.type);
-      setInstitution(investmentToEdit.institution || '');
-      setInitialAmount(investmentToEdit.initial_amount);
-      setCurrentAmount(investmentToEdit.current_amount);
-      setApplicationDate(investmentToEdit.application_date || '');
-      setEstimatedYield(investmentToEdit.estimated_yield || '');
-      setNotes(investmentToEdit.notes || '');
+    if (activeInvestment) {
+      setName(activeInvestment.name);
+      setType(activeInvestment.type);
+      setInstitution(activeInvestment.institution || '');
+      setInitialAmount(activeInvestment.initial_amount);
+      setCurrentAmount(activeInvestment.current_amount);
+      setApplicationDate(activeInvestment.application_date || '');
+      setEstimatedYield(activeInvestment.estimated_yield || '');
+      setNotes(activeInvestment.notes || '');
     } else {
       setName('');
       setType('Tesouro Direto');
@@ -49,7 +52,7 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
       setEstimatedYield('100% CDI');
       setNotes('');
     }
-  }, [investmentToEdit, isOpen]);
+  }, [activeInvestment, isOpen]);
 
   if (!isOpen) return null;
 
@@ -57,8 +60,8 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
     e.preventDefault();
     if (!name.trim() || initialAmount <= 0 || !currentSpace) return;
 
-    if (investmentToEdit) {
-      updateInvestment(investmentToEdit.id, {
+    if (activeInvestment) {
+      updateInvestment(activeInvestment.id, {
         name,
         type,
         institution,
@@ -88,20 +91,23 @@ export const InvestmentModal: React.FC<InvestmentModalProps> = ({
   return (
     <div
       id="investment-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
     >
       <div
         id="investment-modal-content"
-        className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[92vh] animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 duration-200"
       >
-        <div className="flex items-center justify-between p-5 border-b border-[#DDE8E0]">
+        {/* Mobile handle */}
+        <div className="sm:hidden w-10 h-1 bg-[#DDE8E0] rounded-full mx-auto mt-2.5" />
+
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#DDE8E0]">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-cyan-50 text-cyan-600">
               <PiggyBank size={20} />
             </div>
             <div>
               <h3 className="text-lg font-bold text-[#0D3B22]">
-                {investmentToEdit ? 'Editar Investimento' : 'Novo Investimento'}
+                {activeInvestment ? 'Editar Investimento' : 'Novo Investimento'}
               </h3>
               <p className="text-xs text-[#68736C]">Cadastre ativos e acompanhe a evolução</p>
             </div>

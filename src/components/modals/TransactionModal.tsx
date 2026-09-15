@@ -9,6 +9,7 @@ interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   transactionToEdit?: Transaction | null;
+  editingTransaction?: Transaction | null;
   initialType?: 'income' | 'expense_fixed' | 'expense_variable';
 }
 
@@ -16,8 +17,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   isOpen,
   onClose,
   transactionToEdit,
+  editingTransaction,
   initialType = 'expense_variable',
 }) => {
+  const activeTx = transactionToEdit || editingTransaction;
   const {
     currentSpace,
     spaceMembers,
@@ -51,19 +54,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [recurrenceScope, setRecurrenceScope] = useState<'only_this_month' | 'this_and_future'>('only_this_month');
 
   useEffect(() => {
-    if (transactionToEdit) {
-      setDescription(transactionToEdit.description);
-      setAmount(transactionToEdit.amount);
-      setDueDate(transactionToEdit.due_date);
-      setType(transactionToEdit.type);
-      setCategoryId(transactionToEdit.category_id || '');
-      setResponsibleUserId(transactionToEdit.responsible_user_id || '');
-      setPaymentMethod(transactionToEdit.payment_method || 'Pix');
-      setPaymentDate(transactionToEdit.payment_date || '');
-      setIsPaid(transactionToEdit.status === 'paid');
-      setIsRecurring(transactionToEdit.is_recurring);
-      setNotes(transactionToEdit.notes || '');
-      setAttachmentUrl(transactionToEdit.attachment_url || '');
+    if (activeTx) {
+      setDescription(activeTx.description);
+      setAmount(activeTx.amount);
+      setDueDate(activeTx.due_date);
+      setType(activeTx.type);
+      setCategoryId(activeTx.category_id || '');
+      setResponsibleUserId(activeTx.responsible_user_id || '');
+      setPaymentMethod(activeTx.payment_method || 'Pix');
+      setPaymentDate(activeTx.payment_date || '');
+      setIsPaid(activeTx.status === 'paid');
+      setIsRecurring(Boolean(activeTx.is_recurring));
+      setNotes(activeTx.notes || '');
+      setAttachmentUrl(activeTx.attachment_url || '');
       setShowMoreOptions(true);
     } else {
       // Criação: valores padrão
@@ -82,7 +85,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setAttachmentUrl('');
       setShowMoreOptions(false);
     }
-  }, [transactionToEdit, initialType, isOpen, currentUser]);
+  }, [activeTx, initialType, isOpen, currentUser]);
 
   if (!isOpen) return null;
 
@@ -94,9 +97,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
     const refMonth = dueDate.slice(0, 7);
 
-    if (transactionToEdit) {
+    if (activeTx) {
       updateTransaction(
-        transactionToEdit.id,
+        activeTx.id,
         {
           description,
           amount,
@@ -142,14 +145,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   return (
     <div
       id="transaction-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
     >
       <div
         id="transaction-modal-content"
-        className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-2xl shadow-xl border border-[#DDE8E0] overflow-hidden flex flex-col max-h-[92vh] animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 duration-200"
       >
+        {/* Mobile drag handle indicator */}
+        <div className="sm:hidden w-10 h-1 bg-[#DDE8E0] rounded-full mx-auto mt-2.5" />
+
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-[#DDE8E0]">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#DDE8E0]">
           <div className="flex items-center gap-2">
             <span
               className={`w-3 h-3 rounded-full ${

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   TrendingUp,
   TrendingDown,
@@ -36,6 +36,8 @@ import {
 } from '../../lib/calculations';
 import { StatusBadge } from '../common/StatusBadge';
 import { MascotMessage } from '../common/MascotMessage';
+import { QuickPayModal, QuickPayItem } from '../modals/QuickPayModal';
+import { AccountStatus } from '../../types';
 
 interface DashboardViewProps {
   onOpenQuickAdd: () => void;
@@ -63,7 +65,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     monthlyPlans,
     monthlyClosings,
     markTransactionAsPaid,
+    payInstallment,
   } = useFinance();
+
+  const [quickPayItem, setQuickPayItem] = useState<QuickPayItem | null>(null);
+
+  // Handler de pagamento rápido
+  const handleConfirmQuickPay = (
+    id: string,
+    type: 'transaction' | 'installment',
+    paidDate: string,
+    paidAmount: number,
+    updateFutureRecurring?: boolean
+  ) => {
+    if (type === 'transaction') {
+      markTransactionAsPaid(id, paidDate, paidAmount, updateFutureRecurring);
+    } else {
+      payInstallment(id, paidDate, paidAmount);
+    }
+  };
 
   // Calcular totais e saldos financeiros segundo a regra central de calculations.ts
   const currentPlan = monthlyPlans.find(
@@ -103,11 +123,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     (c) => c.space_id === currentSpace?.id && c.reference_month === selectedMonth
   );
 
-  // Próximas contas a vencer ou atrasadas
-  const pendingTransactions = transactions
-    .filter((t) => t.status !== 'paid' && t.status !== 'cancelled')
+  // Próximas contas a vencer ou atrasadas (incluindo despesas fixas, variáveis e parcelas)
+  const pendingTransactions: {
+    id: string;
+    type: 'transaction' | 'installment';
+    description: string;
+    amount: number;
+    due_date: string;
+    status: AccountStatus;
+    isRecurring?: boolean;
+  }[] = [
+    ...transactions
+      .filter((t) => t.status !== 'paid' && t.status !== 'cancelled' && t.type !== 'income')
+      .map((t) => ({
+        id: t.id,
+        type: 'transaction' as const,
+        description: t.description,
+        amount: t.amount,
+        due_date: t.due_date,
+        status: t.status,
+        isRecurring: t.is_recurring,
+      })),
+    ...installments
+      .filter((i) => i.status !== 'paid' && i.status !== 'cancelled' && i.reference_month === selectedMonth)
+      .map((i) => ({
+        id: i.id,
+        type: 'installment' as const,
+        description: `${i.purchase_description || 'Parcela'} (${i.installment_number}/${i.total_installments})`,
+        amount: i.amount,
+        due_date: i.due_date,
+        status: i.status,
+      })),
+  ]
     .sort((a, b) => a.due_date.localeCompare(b.due_date))
-    .slice(0, 5);
+    .slice(0, 6);
 
   // Dados para Gráfico de Barras (Receitas vs Despesas)
   const barChartData = [
@@ -372,8 +421,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => markTransactionAsPaid(tx.id)}
-                      className="text-[10px] font-bold text-[#22C55E] hover:underline bg-white px-2 py-0.5 rounded-md border border-[#DDE8E0]"
+                      onClick={() =>
+                        setQuickPayItem({
+                          id: tx.id,
+                          type: tx.type,
+                          description: tx.description,
+                          expectedAmount: tx.amount,
+                          dueDate: tx.due_date,
+                          isRecurring: tx.isRecurring,
+                        })
+                      }
+                      className="text-[10px] font-bold text-white bg-[#22C55E] hover:bg-[#16a34a] px-2.5 py-1 rounded-md shadow-2xs transition-colors"
                     >
                       Pagar
                     </button>
@@ -472,6 +530,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal de Pagamento Rápido */}
+      <QuickPayModal
+        isOpen={Boolean(quickPayItem)}
+        onClose={() => setQuickPayItem(null)}
+        item={quickPayItem}
+        onConfirmPay={handleConfirmQuickPay}
+      />
     </div>
   );
 };

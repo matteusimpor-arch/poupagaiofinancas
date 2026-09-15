@@ -13,7 +13,17 @@ import {
 interface QuickAddModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectOption: (
+  onSelectOption?: (
+    type:
+      | 'income'
+      | 'expense_fixed'
+      | 'expense_variable'
+      | 'installment'
+      | 'investment'
+      | 'goal'
+      | 'wishlist'
+  ) => void;
+  onSelectType?: (
     type:
       | 'income'
       | 'expense_fixed'
@@ -29,8 +39,11 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   isOpen,
   onClose,
   onSelectOption,
+  onSelectType,
 }) => {
   if (!isOpen) return null;
+
+  const handleSelect = onSelectType || onSelectOption;
 
   const options = [
     {
@@ -87,12 +100,15 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   return (
     <div
       id="quick-add-modal-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150"
     >
       <div
         id="quick-add-modal-content"
-        className="w-full max-w-lg p-6 bg-white rounded-2xl shadow-xl border border-[#DDE8E0] space-y-4"
+        className="w-full sm:max-w-lg p-5 sm:p-6 bg-white rounded-t-3xl sm:rounded-2xl shadow-xl border border-[#DDE8E0] space-y-4 max-h-[85vh] flex flex-col animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 duration-200"
       >
+        {/* Mobile handle indicator */}
+        <div className="sm:hidden w-10 h-1 bg-[#DDE8E0] rounded-full mx-auto -mt-2 mb-1" />
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img
@@ -101,18 +117,18 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
               referrerPolicy="no-referrer"
               className="w-8 h-8 object-contain"
             />
-            <h3 className="text-lg font-bold text-[#0D3B22]">O que você deseja adicionar?</h3>
+            <h3 className="text-base sm:text-lg font-bold text-[#0D3B22]">O que você deseja adicionar?</h3>
           </div>
           <button
             onClick={onClose}
             aria-label="Fechar"
-            className="text-[#68736C] hover:text-[#18201B] p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            className="text-[#68736C] hover:text-[#18201B] p-2 rounded-lg hover:bg-gray-100 min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[70vh] overflow-y-auto py-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[65vh] overflow-y-auto py-1">
           {options.map((opt) => {
             const Icon = opt.icon;
             return (
@@ -121,10 +137,10 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
                 type="button"
                 id={`btn-quick-add-${opt.type}`}
                 onClick={() => {
-                  onSelectOption(opt.type);
+                  handleSelect?.(opt.type);
                   onClose();
                 }}
-                className={`flex items-start gap-3 p-3 text-left rounded-xl border transition-all active:scale-[0.98] ${opt.color}`}
+                className={`flex items-start gap-3 p-3.5 text-left rounded-xl border transition-all min-h-[52px] active:scale-[0.98] ${opt.color}`}
               >
                 <div className="p-2 rounded-lg bg-white/80 shrink-0 shadow-2xs">
                   <Icon size={20} />
