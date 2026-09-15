@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { FinanceProvider, useFinance } from './context/FinanceContext';
 import { Transaction, Goal, Investment, WishlistItem } from './types';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 // Navegação
 import { Sidebar } from './components/navigation/Sidebar';
@@ -457,8 +458,10 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <FinanceProvider>
-      <AppContent />
-    </FinanceProvider>
+    <ErrorBoundary>
+      <FinanceProvider>
+        <AppContent />
+      </FinanceProvider>
+    </ErrorBoundary>
   );
 }
