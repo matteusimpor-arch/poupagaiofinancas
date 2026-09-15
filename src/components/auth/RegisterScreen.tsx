@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Mail, Lock, User, ArrowRight, Eye, EyeOff, CheckCircle2, RotateCcw } from 'lucide-react';
+import React, { useState } from 'react';
+import { Mail, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useFinance } from '../../context/FinanceContext';
 import { PoupagaioLogo } from '../common/PoupagaioLogo';
 import {
   isValidEmailFormat,
   registerUserWithSupabase,
-  resendConfirmationEmail,
-  simulateConfirmEmail,
 } from '../../lib/supabase';
 
 interface RegisterScreenProps {
@@ -26,21 +24,6 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-
-  // Estado de confirmação obrigatória de e-mail (Seção 1.3)
-  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
-  const [registeredEmail, setRegisteredEmail] = useState('');
-  const [resendCooldown, setResendCooldown] = useState(0);
-  const [resendFeedback, setResendFeedback] = useState<string | null>(null);
-
-  // Contador de cooldown para reenvio de e-mail (60s)
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (resendCooldown > 0) {
-      timer = setTimeout(() => setResendCooldown((prev) => prev - 1), 1000);
-    }
-    return () => clearTimeout(timer);
-  }, [resendCooldown]);
 
   const handleGoogleSignup = async () => {
     setError(null);
@@ -84,7 +67,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
 
     setIsLoading(true);
     try {
-      // Registra via módulo Supabase / Local seguro
+      // Registra no banco local / Supabase
       const res = await registerUserWithSupabase({
         name,
         email,
@@ -98,114 +81,14 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
         return;
       }
 
-      // Se requer confirmação obrigatória de e-mail (Seção 1.3)
-      if (res.needsEmailConfirmation) {
-        setRegisteredEmail(email.trim().toLowerCase());
-        setAwaitingConfirmation(true);
-        setResendCooldown(60);
-      } else {
-        // Se já confirmou ou autenticado direto
-        await signup(name, email, password, phone);
-      }
+      // Login imediato e simplificado sem exigência de confirmação de e-mail
+      await signup(name, email, password, phone);
     } catch (err) {
       setError('Erro ao cadastrar. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
   };
-
-  const handleResendConfirmation = async () => {
-    if (resendCooldown > 0) return;
-    setResendFeedback(null);
-    const res = await resendConfirmationEmail(registeredEmail);
-    if (res.success) {
-      setResendFeedback('Novo link de confirmação enviado com sucesso!');
-      setResendCooldown(60);
-    } else {
-      setResendFeedback(res.error || 'Erro ao reenviar link. Tente novamente.');
-    }
-  };
-
-  const handleSimulateConfirmation = async () => {
-    simulateConfirmEmail(registeredEmail);
-    await signup(name, registeredEmail, password, phone);
-  };
-
-  // TELA DE CONFIRMAÇÃO DE E-MAIL (Seção 1.3)
-  if (awaitingConfirmation) {
-    return (
-      <div
-        id="email-confirmation-screen"
-        className="min-h-screen bg-[#F6FAF7] flex flex-col items-center justify-center p-4 selection:bg-[#22C55E] selection:text-white"
-      >
-        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-[#DDE8E0] p-7 md:p-8 space-y-6 text-center">
-          <div className="flex flex-col items-center space-y-3">
-            <div className="w-16 h-16 rounded-2xl bg-emerald-100 text-[#22C55E] flex items-center justify-center shadow-inner">
-              <Mail size={32} />
-            </div>
-            <h2 className="text-xl font-black text-[#0D3B22]">Confirme seu e-mail</h2>
-            <p className="text-xs text-[#68736C] leading-relaxed max-w-sm">
-              Enviamos um link de confirmação para o endereço:
-              <br />
-              <strong className="text-[#18201B] font-bold text-sm">{registeredEmail}</strong>
-            </p>
-            <div className="p-3 bg-[#F6FAF7] border border-[#DDE8E0] rounded-xl text-xs text-[#0D3B22] font-medium">
-              Abra seu e-mail e confirme sua conta para continuar.
-            </div>
-          </div>
-
-          {resendFeedback && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-semibold text-emerald-800 flex items-center justify-center gap-2">
-              <CheckCircle2 size={16} />
-              <span>{resendFeedback}</span>
-            </div>
-          )}
-
-          <div className="space-y-3 pt-2">
-            <button
-              type="button"
-              id="btn-resend-email"
-              onClick={handleResendConfirmation}
-              disabled={resendCooldown > 0}
-              className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold border transition-colors flex items-center justify-center gap-2 ${
-                resendCooldown > 0
-                  ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
-                  : 'bg-white text-[#0D3B22] border-[#DDE8E0] hover:bg-[#F6FAF7]'
-              }`}
-            >
-              <RotateCcw size={14} className={resendCooldown > 0 ? '' : 'text-[#22C55E]'} />
-              <span>
-                {resendCooldown > 0
-                  ? `Reenviar e-mail em ${resendCooldown}s`
-                  : 'Reenviar e-mail de confirmação'}
-              </span>
-            </button>
-
-            {/* Simulação ou Acesso */}
-            <button
-              type="button"
-              id="btn-confirm-and-enter"
-              onClick={handleSimulateConfirmation}
-              className="w-full py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-transform active:scale-[0.99] flex items-center justify-center gap-2"
-            >
-              <span>Já confirmei meu e-mail</span>
-              <ArrowRight size={16} />
-            </button>
-          </div>
-
-          <div className="pt-2 border-t border-[#DDE8E0]/70">
-            <button
-              type="button"
-              onClick={onSwitchToLogin}
-              className="text-xs font-bold text-[#68736C] hover:text-[#18201B]"
-            >
-              ← Voltar para o login
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div

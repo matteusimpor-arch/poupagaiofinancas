@@ -169,10 +169,9 @@ export async function registerUserWithSupabase(params: {
         return { success: false, needsEmailConfirmation: false, error: error.message };
       }
 
-      const needsConfirmation = !data.session && Boolean(data.user);
       return {
         success: true,
-        needsEmailConfirmation: needsConfirmation,
+        needsEmailConfirmation: false,
         user: data.user,
       };
     } catch (err: any) {
@@ -180,7 +179,7 @@ export async function registerUserWithSupabase(params: {
     }
   }
 
-  // Modo Local/Sandbox Simulado com conformidade rigorosa
+  // Modo Local/Sandbox Simulado com acesso imediato
   const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
   const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
   const key = email.trim().toLowerCase();
@@ -191,16 +190,15 @@ export async function registerUserWithSupabase(params: {
     full_name: name.trim(),
     phone: phone ? phone.trim() : undefined,
     password, // Salvo apenas localmente para teste de login
-    email_confirmed: false,
+    email_confirmed: true,
     created_at: new Date().toISOString(),
   };
 
   localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
-  localStorage.setItem(STORAGE_KEYS.PENDING_CONFIRMATION, key);
 
   return {
     success: true,
-    needsEmailConfirmation: true,
+    needsEmailConfirmation: false,
     user: simulatedUsers[key],
   };
 }
@@ -308,14 +306,6 @@ export async function loginUserWithSupabase(
     if (registeredUser.password !== pass) {
       recordFailedLoginAttempt(email);
       return { success: false, error: 'E-mail ou senha incorretos.' };
-    }
-
-    if (!registeredUser.email_confirmed) {
-      return {
-        success: false,
-        needsEmailConfirmation: true,
-        error: 'Por favor, confirme seu e-mail antes de acessar sua conta.',
-      };
     }
 
     resetLoginAttempts(email);
