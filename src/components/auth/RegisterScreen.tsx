@@ -20,11 +20,20 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isPendingConfirmation, setIsPendingConfirmation] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
   // Estados de reenvio de e-mail de confirmação
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSuccess, setResendSuccess] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => {
+      setCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value.replace(/\D/g, '');
@@ -81,6 +90,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
       }
 
       setIsPendingConfirmation(true);
+      setCooldown(60);
     } catch (err: any) {
       setError(err.message || 'Erro ao cadastrar. Tente novamente.');
     } finally {
@@ -96,6 +106,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
       const res = await resendConfirmationEmail(email.trim().toLowerCase());
       if (res.success) {
         setResendSuccess('E-mail de ativação reenviado com sucesso! Verifique sua caixa de entrada.');
+        setCooldown(60);
       } else {
         setResendError(res.error || 'Não foi possível reenviar o e-mail.');
       }
@@ -144,11 +155,15 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
 
             <button
               type="button"
-              disabled={resendLoading}
+              disabled={resendLoading || cooldown > 0}
               onClick={handleResend}
-              className="w-full py-2.5 px-4 bg-transparent hover:bg-emerald-50/50 text-[#22C55E] font-bold text-xs rounded-xl border border-[#22C55E]/20 transition-all active:scale-[0.99] disabled:opacity-50 min-h-[42px]"
+              className="w-full py-2.5 px-4 bg-transparent hover:bg-emerald-50/50 text-[#22C55E] font-bold text-xs rounded-xl border border-[#22C55E]/20 transition-all active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed min-h-[42px]"
             >
-              {resendLoading ? 'Reenviando...' : 'Reenviar E-mail de Confirmação'}
+              {resendLoading
+                ? 'Reenviando...'
+                : cooldown > 0
+                ? `Reenviar em ${cooldown}s`
+                : 'Reenviar E-mail de Confirmação'}
             </button>
           </div>
         </div>
@@ -301,10 +316,16 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
           <button
             type="submit"
             id="btn-submit-register"
-            disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] mt-2 min-h-[44px]"
+            disabled={isLoading || cooldown > 0}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] mt-2 min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <span>{isLoading ? 'Criando sua conta...' : 'Cadastrar Gratuitamente'}</span>
+            <span>
+              {isLoading
+                ? 'Criando sua conta...'
+                : cooldown > 0
+                ? `Aguarde ${cooldown}s`
+                : 'Cadastrar Gratuitamente'}
+            </span>
             <ArrowRight size={17} />
           </button>
         </form>

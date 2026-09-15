@@ -16,6 +16,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  React.useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => {
+      setCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,9 +60,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
       }
 
       setIsSent(true);
+      setCooldown(60);
     } catch (err) {
       // Mensagem neutra em caso de exceção de segurança (Seção 22)
       setIsSent(true);
+      setCooldown(60);
     } finally {
       setIsLoading(false);
     }
@@ -154,10 +165,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
               <button
                 type="submit"
                 id="btn-submit-login"
-                disabled={isLoading}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] min-h-[44px]"
+                disabled={isLoading || cooldown > 0}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99] focus:ring-2 focus:ring-[#22C55E] min-h-[44px] disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                <span>{isLoading ? 'Enviando...' : 'Entrar sem Senha'}</span>
+                <span>
+                  {isLoading
+                    ? 'Enviando...'
+                    : cooldown > 0
+                    ? `Aguarde ${cooldown}s`
+                    : 'Entrar sem Senha'}
+                </span>
                 <ArrowRight size={17} />
               </button>
             </form>
