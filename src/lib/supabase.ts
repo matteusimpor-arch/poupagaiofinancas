@@ -175,23 +175,10 @@ export async function registerUserWithSupabase(params: {
         return { success: false, needsEmailConfirmation: false, error: error.message };
       }
 
-      // Também salva no simulador local como fallback de persistência rápida
-      const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
-      const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
-      simulatedUsers[normalizedEmail] = {
-        id: data.user?.id || 'user-' + Date.now(),
-        email: normalizedEmail,
-        full_name: name.trim(),
-        password,
-        email_confirmed: true,
-        created_at: new Date().toISOString(),
-      };
-      localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
-
       return {
         success: true,
-        needsEmailConfirmation: false,
-        user: data.user || simulatedUsers[normalizedEmail],
+        needsEmailConfirmation: Boolean(data.user && !data.session),
+        user: data.user,
       };
     } catch (err: any) {
       console.error('[Supabase Auth SignUp Exception]', err);
@@ -199,10 +186,7 @@ export async function registerUserWithSupabase(params: {
     }
   }
 
-  // Modo Local/Sandbox Simulado com acesso imediato
-  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
-  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
-
+  // Modo Local/Sandbox Simulado quando Supabase URL não configurada
   const createdUser = {
     id: 'user-' + Date.now(),
     email: normalizedEmail,
@@ -213,6 +197,8 @@ export async function registerUserWithSupabase(params: {
     created_at: new Date().toISOString(),
   };
 
+  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
+  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
   simulatedUsers[normalizedEmail] = createdUser;
   localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
 
@@ -347,7 +333,7 @@ export function simulateConfirmEmail(email: string): boolean {
 }
 
 /**
- * Login com Supabase ou Fallback Seguro
+ * Login com Supabase Auth e Tratamento Rigoroso de Erros (Seção 13)
  */
 export async function loginUserWithSupabase(
   email: string,
@@ -375,49 +361,85 @@ export async function loginUserWithSupabase(
       });
 
       if (error) {
-        console.error('[Supabase Auth Login Error]', {
+        // Diagnóstico dev de credenciais (console.warn para não travar monitor de erros em caso de digitação incorreta)
+        console.warn('[Supabase Auth Login Notice]', {
           message: error.message,
           status: error.status,
           code: (error as any).code,
         });
+
         recordFailedLoginAttempt(normalizedEmail);
 
-        if (
-          error.message?.toLowerCase().includes('email not confirmed') ||
-          (error as any).code === 'email_not_confirmed'
-        ) {
+        const errMsgLower = error.message?.toLowerCase() || '';
+        const errCode = (error as any).code;
+
+        // E-mail não confirmado
+        if (errMsgLower.includes('email not confirmed') || errCode === 'email_not_confirmed') {
           return {
             success: false,
             needsEmailConfirmation: true,
             error:
-              'E-mail não confirmado no Supabase. No Dashboard do Supabase (Authentication > Email), certifique-se de que a opção "Confirm email" está desativada para acesso direto.',
+              'E-mail não confirmado no Supabase. Verifique sua caixa de entrada para confirmar a conta.',
           };
         }
 
+        // Rate Limit pelo Supabase
+        if (error.status === 429 || errMsgLower.includes('too many requests')) {
+          return {
+            success: false,
+            error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
+          };
+        }
+
+        // Problema de Conexão / Rede
+        if (
+          errMsgLower.includes('failed to fetch') ||
+          errMsgLower.includes('networkerror') ||
+          error.status === 0 ||
+          (error.status && error.status >= 500)
+        ) {
+          return {
+            success: false,
+            error: 'Não foi possível conectar. Tente novamente.',
+          };
+        }
+
+        // Credenciais Inválidas (E-mail ou senha incorretos)
+        if (
+          errCode === 'invalid_credentials' ||
+          error.status === 400 ||
+          errMsgLower.includes('invalid login credentials')
+        ) {
+          return {
+            success: false,
+            error: 'E-mail ou senha incorretos.',
+          };
+        }
+
+        // Erro genérico / interno
         return {
           success: false,
-          error: 'E-mail ou senha incorretos.',
+          error: 'Não foi possível entrar agora. Tente novamente.',
         };
       }
 
       resetLoginAttempts(normalizedEmail);
       return { success: true, user: data.user };
     } catch (err: any) {
-      console.error('[Supabase Auth Login Exception]', err);
+      console.warn('[Supabase Auth Login Exception]', err);
       recordFailedLoginAttempt(normalizedEmail);
       return {
         success: false,
-        error: 'E-mail ou senha incorretos.',
+        error: 'Não foi possível conectar. Tente novamente.',
       };
     }
   }
 
-  // Verificação no banco de dados local simulado
+  // Verificação no banco de dados local simulado (somente quando Supabase URL não estiver configurada)
   const raw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
   const users: Record<string, any> = raw ? JSON.parse(raw) : {};
   const registeredUser = users[normalizedEmail];
 
-  // Se o usuário foi cadastrado localmente
   if (registeredUser) {
     if (registeredUser.password !== pass) {
       recordFailedLoginAttempt(normalizedEmail);
@@ -445,7 +467,6 @@ export async function loginUserWithSupabase(
     };
   }
 
-  // Credenciais não coincidem
   recordFailedLoginAttempt(normalizedEmail);
   return { success: false, error: 'E-mail ou senha incorretos.' };
 }

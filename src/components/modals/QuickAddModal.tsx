@@ -8,6 +8,7 @@ import {
   PiggyBank,
   Target,
   Heart,
+  ShoppingCart,
 } from 'lucide-react';
 
 interface QuickAddModalProps {
@@ -22,6 +23,7 @@ interface QuickAddModalProps {
       | 'investment'
       | 'goal'
       | 'wishlist'
+      | 'market_list'
   ) => void;
   onSelectType?: (
     type:
@@ -32,6 +34,7 @@ interface QuickAddModalProps {
       | 'investment'
       | 'goal'
       | 'wishlist'
+      | 'market_list'
   ) => void;
 }
 
@@ -87,6 +90,13 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
       description: 'Reserva, viagem dos sonhos, compras futuras',
       icon: Target,
       color: 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100',
+    },
+    {
+      type: 'market_list' as const,
+      label: 'Lista de Mercado',
+      description: 'Crie ou gerencie suas listas de supermercado',
+      icon: ShoppingCart,
+      color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
     },
     {
       type: 'wishlist' as const,

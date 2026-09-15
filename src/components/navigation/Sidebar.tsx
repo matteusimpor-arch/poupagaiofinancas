@@ -13,6 +13,7 @@ import {
   Plus,
   Bell,
   Heart,
+  ShoppingCart,
 } from 'lucide-react';
 import { useFinance } from '../../context/FinanceContext';
 import { PoupagaioLogo } from '../common/PoupagaioLogo';
@@ -47,6 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
     { id: 'movimentacoes', label: 'Movimentações', icon: ArrowLeftRight },
+    { id: 'mercado', label: 'Mercado', icon: ShoppingCart },
     { id: 'planejamento', label: 'Planejamento', icon: SlidersHorizontal },
     { id: 'investimentos', label: 'Investimentos', icon: TrendingUp },
     { id: 'metas', label: 'Metas', icon: Target },

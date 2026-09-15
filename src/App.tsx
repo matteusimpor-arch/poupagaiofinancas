@@ -21,6 +21,7 @@ import { PlanningView } from './components/views/PlanningView';
 import { InvestmentsView } from './components/views/InvestmentsView';
 import { GoalsView } from './components/views/GoalsView';
 import { WishlistView } from './components/views/WishlistView';
+import { MercadoView } from './components/views/MercadoView';
 import { ReportsView } from './components/views/ReportsView';
 import { ProfileView } from './components/views/ProfileView';
 
@@ -156,6 +157,8 @@ const AppContent: React.FC = () => {
     } else if (type === 'wishlist') {
       setEditingWishlist(null);
       setIsWishlistModalOpen(true);
+    } else if (type === 'market_list') {
+      setCurrentTab('mercado');
     }
   };
 
@@ -303,6 +306,10 @@ const AppContent: React.FC = () => {
               onConvertWishlistToTransaction={handleConvertWishlistToTransaction}
               onConvertWishlistToInstallment={handleConvertWishlistToInstallment}
             />
+          )}
+
+          {currentTab === 'mercado' && (
+            <MercadoView onNavigateTab={setCurrentTab} />
           )}
 
           {currentTab === 'relatorios' && <ReportsView />}

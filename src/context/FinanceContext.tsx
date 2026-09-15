@@ -16,6 +16,9 @@ import {
   MonthlyClosing,
   NotificationItem,
   AuditLog,
+  ShoppingList,
+  ShoppingItem,
+  ShoppingPriceReference,
 } from '../types';
 import {
   INITIAL_USER,
@@ -32,6 +35,8 @@ import {
   INITIAL_MONTHLY_PLANS,
   INITIAL_NOTIFICATIONS,
   INITIAL_AUDIT_LOGS,
+  INITIAL_SHOPPING_LISTS,
+  INITIAL_SHOPPING_ITEMS,
 } from '../data/mockInitialData';
 import { DEFAULT_CATEGORIES } from '../data/defaultCategories';
 import { computeAccountStatus, evaluateMonthClosing } from '../lib/calculations';
@@ -43,11 +48,13 @@ import {
   logoutUser,
 } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { supabase } from '../lib/supabase';
+import { supabase, loginUserWithSupabase, registerUserWithSupabase } from '../lib/supabase';
 import {
   saveToFirestore,
   deleteFromFirestore,
   seedSpaceDataIfEmpty,
+  saveUserDataToCloud,
+  subscribeToUserDataCloud,
 } from '../lib/firestoreSync';
 
 interface FinanceContextType {
@@ -175,6 +182,23 @@ interface FinanceContextType {
   markNotificationAsRead: (id: string) => void;
   clearAllNotifications: () => void;
 
+  // Mercado / Lista de Compras
+  shoppingLists: ShoppingList[];
+  shoppingItems: ShoppingItem[];
+  shoppingPriceReferences: Record<string, number>;
+  createShoppingList: (name: string, budget?: number) => Promise<ShoppingList>;
+  updateShoppingList: (id: string, updates: Partial<ShoppingList>) => Promise<void>;
+  deleteShoppingList: (id: string) => Promise<void>;
+  addShoppingItem: (listId: string, name: string, quantity?: number) => Promise<ShoppingItem>;
+  updateShoppingItem: (id: string, updates: Partial<ShoppingItem>) => Promise<void>;
+  removeShoppingItem: (id: string) => Promise<void>;
+  startShopping: (listId: string) => Promise<void>;
+  finishShopping: (
+    listId: string
+  ) => Promise<{ list: ShoppingList; total: number; boughtCount: number; skippedCount: number }>;
+  registerShoppingTransaction: (listId: string) => Promise<Transaction | null>;
+  duplicateShoppingList: (listId: string, newName?: string) => Promise<ShoppingList>;
+
   // Auditoria
   auditLogs: AuditLog[];
 
@@ -212,6 +236,9 @@ const STORAGE_KEYS = {
   CLOSINGS: 'poupagaio_closings_data',
   NOTIFICATIONS: 'poupagaio_notifications_data',
   AUDIT: 'poupagaio_audit_data',
+  SHOPPING_LISTS: 'poupagaio_shopping_lists_data',
+  SHOPPING_ITEMS: 'poupagaio_shopping_items_data',
+  SHOPPING_PRICES: 'poupagaio_shopping_prices_data',
 };
 
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -330,7 +357,23 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
   });
 
-  // 14. Toast Feedback
+  // 14. Mercado / Lista de Compras
+  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SHOPPING_LISTS);
+    return saved ? JSON.parse(saved) : INITIAL_SHOPPING_LISTS;
+  });
+
+  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SHOPPING_ITEMS);
+    return saved ? JSON.parse(saved) : INITIAL_SHOPPING_ITEMS;
+  });
+
+  const [shoppingPriceReferences, setShoppingPriceReferences] = useState<Record<string, number>>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SHOPPING_PRICES);
+    return saved ? JSON.parse(saved) : {};
+  });
+
+  // 15. Toast Feedback
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'info' | 'error';
@@ -420,6 +463,18 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem(STORAGE_KEYS.AUDIT, JSON.stringify(auditLogs));
   }, [auditLogs]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SHOPPING_LISTS, JSON.stringify(shoppingLists));
+  }, [shoppingLists]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SHOPPING_ITEMS, JSON.stringify(shoppingItems));
+  }, [shoppingItems]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SHOPPING_PRICES, JSON.stringify(shoppingPriceReferences));
+  }, [shoppingPriceReferences]);
+
   // Espaço Ativo Atual
   const currentSpace =
     spaces.find((s) => s.id === selectedSpaceId) ||
@@ -449,9 +504,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveToFirestore('audit_logs', newLog.id, newLog);
   };
 
-  // Isolamento de Dados por Usuário no LocalStorage (Seções 6, 7 e 18)
+  // Carrega e sincroniza em tempo real dados do usuário (LocalStorage + Cloud Firestore para múltiplos dispositivos)
   useEffect(() => {
     if (!currentUser?.id) return;
+
+    // 1. Carrega de imediato do LocalStorage (se existir) para renderização instantânea sem latency
     const userKey = `poupagaio_user_data_${currentUser.id}`;
     const savedData = localStorage.getItem(userKey);
 
@@ -470,11 +527,14 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (parsed.wishlist) setWishlist(parsed.wishlist);
         if (parsed.monthlyPlans) setMonthlyPlans(parsed.monthlyPlans);
         if (parsed.monthlyClosings) setMonthlyClosings(parsed.monthlyClosings);
+        if (parsed.shoppingLists) setShoppingLists(parsed.shoppingLists);
+        if (parsed.shoppingItems) setShoppingItems(parsed.shoppingItems);
+        if (parsed.shoppingPriceReferences) setShoppingPriceReferences(parsed.shoppingPriceReferences);
       } catch (e) {
         // Fallback gracioso
       }
     } else if (currentUser.id !== 'user-mateus-01' && currentUser.id !== 'user-luana-02') {
-      // Novo usuário (ex: Usuário B no Teste de Isolamento): Inicializa com ambiente isolado limpo
+      // Novo usuário: Inicializa com ambiente isolado limpo
       const personalSpace: FinancialSpace = {
         id: 'space-' + currentUser.id,
         name: 'Minhas finanças',
@@ -512,10 +572,37 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setWishlist([]);
       setMonthlyPlans([]);
       setMonthlyClosings([]);
+      setShoppingLists([]);
+      setShoppingItems([]);
+      setShoppingPriceReferences({});
     }
+
+    // 2. Inscreve no listener de sincronização em nuvem (permitindo sincronização Celular <-> Computador em tempo real)
+    const unsubCloud = subscribeToUserDataCloud(currentUser.id, (remoteData) => {
+      if (!remoteData) return;
+      if (remoteData.spaces) setSpaces(remoteData.spaces);
+      if (remoteData.selectedSpaceId) setSelectedSpaceId(remoteData.selectedSpaceId);
+      if (remoteData.categories) setCategories(remoteData.categories);
+      if (remoteData.transactions) setTransactions(remoteData.transactions);
+      if (remoteData.installmentPurchases) setInstallmentPurchases(remoteData.installmentPurchases);
+      if (remoteData.installments) setInstallments(remoteData.installments);
+      if (remoteData.investments) setInvestments(remoteData.investments);
+      if (remoteData.goals) setGoals(remoteData.goals);
+      if (remoteData.goalMovements) setGoalMovements(remoteData.goalMovements);
+      if (remoteData.wishlist) setWishlist(remoteData.wishlist);
+      if (remoteData.monthlyPlans) setMonthlyPlans(remoteData.monthlyPlans);
+      if (remoteData.monthlyClosings) setMonthlyClosings(remoteData.monthlyClosings);
+      if (remoteData.shoppingLists) setShoppingLists(remoteData.shoppingLists);
+      if (remoteData.shoppingItems) setShoppingItems(remoteData.shoppingItems);
+      if (remoteData.shoppingPriceReferences) setShoppingPriceReferences(remoteData.shoppingPriceReferences);
+    });
+
+    return () => {
+      unsubCloud();
+    };
   }, [currentUser?.id]);
 
-  // Salva dados isolados do usuário logado em tempo real
+  // Salva dados do usuário no LocalStorage e no Cloud Firestore em tempo real
   useEffect(() => {
     if (!currentUser?.id) return;
     const userKey = `poupagaio_user_data_${currentUser.id}`;
@@ -532,8 +619,12 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       wishlist,
       monthlyPlans,
       monthlyClosings,
+      shoppingLists,
+      shoppingItems,
+      shoppingPriceReferences,
     };
     localStorage.setItem(userKey, JSON.stringify(userData));
+    saveUserDataToCloud(currentUser.id, userData);
   }, [
     currentUser?.id,
     spaces,
@@ -548,6 +639,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     wishlist,
     monthlyPlans,
     monthlyClosings,
+    shoppingLists,
+    shoppingItems,
+    shoppingPriceReferences,
   ]);
 
   // Monitora alterações de autenticação no Supabase Auth e Firebase Auth
@@ -1680,6 +1774,268 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNotifications([]);
   };
 
+  // Funções do Mercado / Lista de Compras
+  const createShoppingList = async (name: string, budget?: number): Promise<ShoppingList> => {
+    if (!currentSpace || !currentUser) throw new Error('Usuário não autenticado');
+    const newList: ShoppingList = {
+      id: 'shop-list-' + Date.now() + Math.random().toString(36).substring(2, 5),
+      space_id: currentSpace.id,
+      user_id: currentUser.id,
+      name: name.trim(),
+      budget: budget && budget > 0 ? budget : undefined,
+      status: 'draft',
+      total: 0,
+      created_at: new Date().toISOString(),
+    };
+    setShoppingLists((prev) => [newList, ...prev]);
+    saveToFirestore('shopping_lists', newList.id, newList);
+    showToast('Lista de compras criada!', 'success');
+    return newList;
+  };
+
+  const updateShoppingList = async (id: string, updates: Partial<ShoppingList>): Promise<void> => {
+    setShoppingLists((prev) =>
+      prev.map((l) => {
+        if (l.id === id) {
+          const updated = { ...l, ...updates };
+          saveToFirestore('shopping_lists', id, updated);
+          return updated;
+        }
+        return l;
+      })
+    );
+  };
+
+  const deleteShoppingList = async (id: string): Promise<void> => {
+    setShoppingLists((prev) => prev.filter((l) => l.id !== id));
+    setShoppingItems((prev) => prev.filter((i) => i.shopping_list_id !== id));
+    deleteFromFirestore('shopping_lists', id);
+    showToast('Lista excluída.', 'info');
+  };
+
+  const addShoppingItem = async (listId: string, name: string, quantity?: number): Promise<ShoppingItem> => {
+    if (!currentUser) throw new Error('Usuário não autenticado');
+    const normName = name.trim().toLowerCase();
+    const lastPrice = shoppingPriceReferences[normName] || undefined;
+    const qty = quantity && quantity > 0 ? quantity : 1;
+
+    const newItem: ShoppingItem = {
+      id: 'shop-item-' + Date.now() + Math.random().toString(36).substring(2, 5),
+      shopping_list_id: listId,
+      user_id: currentUser.id,
+      name: name.trim(),
+      quantity: qty,
+      subtotal: 0,
+      status: 'pending',
+      last_price_reference: lastPrice,
+      created_at: new Date().toISOString(),
+    };
+
+    setShoppingItems((prev) => [...prev, newItem]);
+    saveToFirestore('shopping_items', newItem.id, newItem);
+    return newItem;
+  };
+
+  const updateShoppingItem = async (id: string, updates: Partial<ShoppingItem>): Promise<void> => {
+    setShoppingItems((prev) => {
+      const nextItems = prev.map((item) => {
+        if (item.id === id) {
+          const updated = { ...item, ...updates };
+          if (updated.status === 'in_cart' && updated.unit_price !== undefined) {
+            updated.subtotal = updated.quantity * updated.unit_price;
+          } else if (updated.status !== 'in_cart') {
+            updated.subtotal = 0;
+          }
+          updated.updated_at = new Date().toISOString();
+          saveToFirestore('shopping_items', id, updated);
+          return updated;
+        }
+        return item;
+      });
+
+      const targetItem = nextItems.find((i) => i.id === id);
+      if (targetItem) {
+        const listItems = nextItems.filter((i) => i.shopping_list_id === targetItem.shopping_list_id);
+        const newTotal = listItems
+          .filter((i) => i.status === 'in_cart')
+          .reduce((sum, i) => sum + (i.subtotal || 0), 0);
+
+        setShoppingLists((lists) =>
+          lists.map((l) => (l.id === targetItem.shopping_list_id ? { ...l, total: newTotal } : l))
+        );
+      }
+
+      return nextItems;
+    });
+  };
+
+  const removeShoppingItem = async (id: string): Promise<void> => {
+    let targetListId: string | undefined;
+    setShoppingItems((prev) => {
+      const item = prev.find((i) => i.id === id);
+      if (item) targetListId = item.shopping_list_id;
+      return prev.filter((i) => i.id !== id);
+    });
+    deleteFromFirestore('shopping_items', id);
+
+    if (targetListId) {
+      setTimeout(() => {
+        setShoppingItems((latest) => {
+          const listItems = latest.filter((i) => i.shopping_list_id === targetListId);
+          const newTotal = listItems
+            .filter((i) => i.status === 'in_cart')
+            .reduce((sum, i) => sum + (i.subtotal || 0), 0);
+          setShoppingLists((lists) =>
+            lists.map((l) => (l.id === targetListId ? { ...l, total: newTotal } : l))
+          );
+          return latest;
+        });
+      }, 50);
+    }
+  };
+
+  const startShopping = async (listId: string): Promise<void> => {
+    const startedAt = new Date().toISOString();
+    setShoppingLists((prev) =>
+      prev.map((l) => (l.id === listId ? { ...l, status: 'shopping', started_at: startedAt } : l))
+    );
+    showToast('Modo Compra iniciado! Bom mercado 🛒', 'success');
+  };
+
+  const finishShopping = async (
+    listId: string
+  ): Promise<{ list: ShoppingList; total: number; boughtCount: number; skippedCount: number }> => {
+    const listItems = shoppingItems.filter((i) => i.shopping_list_id === listId);
+    const boughtItems = listItems.filter((i) => i.status === 'in_cart');
+    const skippedItems = listItems.filter((i) => i.status === 'skipped');
+    const total = boughtItems.reduce((sum, i) => sum + (i.subtotal || 0), 0);
+
+    const completedAt = new Date().toISOString();
+
+    let updatedList: ShoppingList | undefined;
+    setShoppingLists((prev) =>
+      prev.map((l) => {
+        if (l.id === listId) {
+          updatedList = { ...l, status: 'completed', total, completed_at: completedAt };
+          saveToFirestore('shopping_lists', listId, updatedList);
+          return updatedList;
+        }
+        return l;
+      })
+    );
+
+    const newRefs = { ...shoppingPriceReferences };
+    boughtItems.forEach((item) => {
+      if (item.unit_price && item.unit_price > 0) {
+        const norm = item.name.trim().toLowerCase();
+        newRefs[norm] = item.unit_price;
+      }
+    });
+    setShoppingPriceReferences(newRefs);
+
+    return {
+      list: updatedList || {
+        id: listId,
+        space_id: currentSpace?.id || '',
+        user_id: currentUser?.id || '',
+        name: 'Compras do mês',
+        status: 'completed',
+        total,
+        created_at: completedAt,
+      },
+      total,
+      boughtCount: boughtItems.length,
+      skippedCount: skippedItems.length,
+    };
+  };
+
+  const registerShoppingTransaction = async (listId: string): Promise<Transaction | null> => {
+    const list = shoppingLists.find((l) => l.id === listId);
+    if (!list) return null;
+    if (list.financial_transaction_id) {
+      showToast('Esta compra já foi registrada nas finanças!', 'info');
+      return transactions.find((t) => t.id === list.financial_transaction_id) || null;
+    }
+
+    const catMercado = categories.find(
+      (c) => c.name.toLowerCase().includes('mercado') || c.name.toLowerCase().includes('supermercado')
+    ) || categories.find((c) => c.id === 'cat-exp-compras') || categories[0];
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const refMonthStr = list.completed_at ? list.completed_at.slice(0, 7) : selectedMonth;
+
+    const txData: Omit<Transaction, 'id' | 'created_at' | 'created_by' | 'status'> = {
+      space_id: list.space_id,
+      description: list.name || 'Compras no Mercado',
+      amount: list.total,
+      type: 'expense_variable',
+      category_id: catMercado?.id,
+      due_date: todayStr,
+      payment_date: todayStr,
+      reference_month: refMonthStr,
+      is_recurring: false,
+    };
+
+    const newTx = await addTransaction(txData);
+
+    setShoppingLists((prev) =>
+      prev.map((l) => {
+        if (l.id === listId) {
+          const updated = { ...l, financial_transaction_id: newTx.id };
+          saveToFirestore('shopping_lists', listId, updated);
+          return updated;
+        }
+        return l;
+      })
+    );
+
+    showToast('✓ Registrado nas suas finanças com sucesso!', 'success');
+    return newTx;
+  };
+
+  const duplicateShoppingList = async (listId: string, newName?: string): Promise<ShoppingList> => {
+    if (!currentSpace || !currentUser) throw new Error('Usuário não autenticado');
+    const originalList = shoppingLists.find((l) => l.id === listId);
+    if (!originalList) throw new Error('Lista não encontrada');
+
+    const originalItems = shoppingItems.filter((i) => i.shopping_list_id === listId);
+
+    const newList: ShoppingList = {
+      id: 'shop-list-' + Date.now() + Math.random().toString(36).substring(2, 5),
+      space_id: currentSpace.id,
+      user_id: currentUser.id,
+      name: newName ? newName.trim() : originalList.name,
+      budget: originalList.budget,
+      status: 'draft',
+      total: 0,
+      created_at: new Date().toISOString(),
+    };
+
+    const newItems: ShoppingItem[] = originalItems.map((item, idx) => {
+      const norm = item.name.trim().toLowerCase();
+      const lastPrice = shoppingPriceReferences[norm] || item.unit_price || item.last_price_reference;
+      return {
+        id: 'shop-item-' + Date.now() + '-' + idx,
+        shopping_list_id: newList.id,
+        user_id: currentUser.id,
+        name: item.name,
+        quantity: item.quantity || 1,
+        subtotal: 0,
+        status: 'pending',
+        last_price_reference: lastPrice,
+        created_at: new Date().toISOString(),
+      };
+    });
+
+    setShoppingLists((prev) => [newList, ...prev]);
+    setShoppingItems((prev) => [...prev, ...newItems]);
+    saveToFirestore('shopping_lists', newList.id, newList);
+    newItems.forEach((i) => saveToFirestore('shopping_items', i.id, i));
+
+    showToast('Lista copiada! Pronta para uso 🛒', 'success');
+    return newList;
+  };
+
   // Reset para dados mock iniciais
   const resetToMockData = () => {
     setCurrentUser(INITIAL_USER);
@@ -1700,6 +2056,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setMonthlyClosings([]);
     setNotifications(INITIAL_NOTIFICATIONS);
     setAuditLogs(INITIAL_AUDIT_LOGS);
+    setShoppingLists(INITIAL_SHOPPING_LISTS);
+    setShoppingItems(INITIAL_SHOPPING_ITEMS);
+    setShoppingPriceReferences({});
   };
 
   return (
@@ -1779,6 +2138,20 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         notifications: notifications.filter((n) => n.user_id === currentUser?.id),
         markNotificationAsRead,
         clearAllNotifications,
+
+        shoppingLists: shoppingLists.filter((l) => l.space_id === currentSpace?.id),
+        shoppingItems: shoppingItems.filter((i) => i.user_id === currentUser?.id),
+        shoppingPriceReferences,
+        createShoppingList,
+        updateShoppingList,
+        deleteShoppingList,
+        addShoppingItem,
+        updateShoppingItem,
+        removeShoppingItem,
+        startShopping,
+        finishShopping,
+        registerShoppingTransaction,
+        duplicateShoppingList,
 
         auditLogs: auditLogs.filter((a) => a.space_id === currentSpace?.id),
 
