@@ -657,6 +657,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             userObj.user_metadata?.name ||
             userObj.email?.split('@')[0] ||
             'Usuário Poupagaio',
+          phone: userObj.user_metadata?.phone || userObj.phone || '',
           avatar_url: userObj.user_metadata?.avatar_url,
           due_alert_days: 3,
           created_at: userObj.created_at || new Date().toISOString(),
@@ -676,6 +677,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             userObj.user_metadata?.name ||
             userObj.email?.split('@')[0] ||
             'Usuário Poupagaio',
+          phone: userObj.user_metadata?.phone || userObj.phone || '',
           avatar_url: userObj.user_metadata?.avatar_url,
           due_alert_days: 3,
           created_at: userObj.created_at || new Date().toISOString(),
@@ -725,6 +727,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
           authenticatedUser.user_metadata?.full_name ||
           authenticatedUser.full_name ||
           normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
+        phone: authenticatedUser.user_metadata?.phone || authenticatedUser.phone || '',
         avatar_url: authenticatedUser.user_metadata?.avatar_url || authenticatedUser.avatar_url,
         due_alert_days: 3,
         created_at: authenticatedUser.created_at || new Date().toISOString(),
@@ -745,6 +748,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
             res.user.user_metadata?.full_name ||
             res.user.full_name ||
             normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
+          phone: res.user.user_metadata?.phone || res.user.phone || '',
           avatar_url: res.user.user_metadata?.avatar_url,
           due_alert_days: 3,
           created_at: res.user.created_at || new Date().toISOString(),

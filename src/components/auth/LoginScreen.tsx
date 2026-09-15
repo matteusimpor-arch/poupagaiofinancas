@@ -7,6 +7,7 @@ import {
   isValidEmailFormat,
   loginUserWithSupabase,
   sendPasswordResetEmail,
+  resendConfirmationEmail,
 } from '../../lib/supabase';
 
 interface LoginScreenProps {
@@ -21,6 +22,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Estados para reenvio de confirmação de e-mail
+  const [showResendOption, setShowResendOption] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
+
   // Esqueci minha senha (Seção 1.6)
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -30,6 +37,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setShowResendOption(false);
+    setResendSuccess(null);
+    setResendError(null);
 
     // 1.5 Verificação de bloqueio por excesso de tentativas
     const attemptCheck = checkLoginAttempts(email);
@@ -55,6 +65,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
 
       if (!res.success) {
         setError(res.error || 'E-mail ou senha incorretos.');
+        if (res.needsEmailConfirmation) {
+          setShowResendOption(true);
+        }
         setIsLoading(false);
         return;
       }
@@ -65,6 +78,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
       setError('E-mail ou senha incorretos.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    setResendLoading(true);
+    setResendSuccess(null);
+    setResendError(null);
+    try {
+      const res = await resendConfirmationEmail(email);
+      if (res.success) {
+        setResendSuccess('E-mail de confirmação reenviado com sucesso! Verifique sua caixa de entrada.');
+      } else {
+        setResendError(res.error || 'Não foi possível reenviar o e-mail de confirmação.');
+      }
+    } catch (err: any) {
+      setResendError(err.message || 'Erro ao reenviar o e-mail.');
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -125,9 +156,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
         </div>
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
-            <AlertCircle size={16} className="shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="space-y-2">
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700 flex items-start gap-2">
+              <AlertCircle size={16} className="shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+
+            {showResendOption && (
+              <div className="p-3.5 bg-emerald-50 border border-[#22C55E]/15 rounded-xl space-y-2">
+                <p className="text-[11px] text-[#0D3B22] leading-relaxed">
+                  Não recebeu o e-mail de ativação ou o link expirou? Clique abaixo para reenviar.
+                </p>
+                {resendSuccess && (
+                  <p className="text-[11px] font-semibold text-emerald-700">{resendSuccess}</p>
+                )}
+                {resendError && (
+                  <p className="text-[11px] font-semibold text-red-600">{resendError}</p>
+                )}
+                <button
+                  type="button"
+                  disabled={resendLoading}
+                  onClick={handleResendConfirmation}
+                  className="text-[11px] font-extrabold text-[#22C55E] hover:text-[#16a34a] transition-all flex items-center gap-1 active:scale-[0.98] disabled:opacity-50"
+                >
+                  {resendLoading ? 'Enviando...' : 'Reenviar e-mail de confirmação'}
+                  <ArrowRight size={12} />
+                </button>
+              </div>
+            )}
           </div>
         )}
 

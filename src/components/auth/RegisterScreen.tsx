@@ -5,6 +5,7 @@ import { PoupagaioLogo } from '../common/PoupagaioLogo';
 import {
   isValidEmailFormat,
   registerUserWithSupabase,
+  resendConfirmationEmail,
 } from '../../lib/supabase';
 
 interface RegisterScreenProps {
@@ -23,6 +24,12 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPendingConfirmation, setIsPendingConfirmation] = useState(false);
+
+  // Estados de reenvio de e-mail de confirmação
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState<string | null>(null);
+  const [resendError, setResendError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +72,13 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
         return;
       }
 
+      // Se necessitar de confirmação por e-mail no Supabase
+      if (res.needsEmailConfirmation) {
+        setIsPendingConfirmation(true);
+        setIsLoading(false);
+        return;
+      }
+
       // Login imediato e simplificado utilizando o auth.uid() retornado
       await signup(name, email, password, phone, res.user);
     } catch (err) {
@@ -73,6 +87,75 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
       setIsLoading(false);
     }
   };
+
+  const handleResend = async () => {
+    setResendLoading(true);
+    setResendSuccess(null);
+    setResendError(null);
+    try {
+      const res = await resendConfirmationEmail(email);
+      if (res.success) {
+        setResendSuccess('E-mail de confirmação reenviado com sucesso! Verifique sua caixa de entrada.');
+      } else {
+        setResendError(res.error || 'Não foi possível reenviar o e-mail de confirmação.');
+      }
+    } catch (err: any) {
+      setResendError(err.message || 'Erro ao reenviar o e-mail.');
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
+  if (isPendingConfirmation) {
+    return (
+      <div
+        id="register-success-screen"
+        className="min-h-screen bg-[#F6FAF7] flex flex-col items-center justify-center p-4 selection:bg-[#22C55E] selection:text-white"
+      >
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-[#DDE8E0] p-8 text-center space-y-6">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center border border-[#22C55E]/20 text-[#22C55E]">
+              <Mail size={32} />
+            </div>
+            <h2 className="text-xl font-black text-[#0D3B22]">Confirme seu E-mail!</h2>
+            <p className="text-sm text-[#68736C]">
+              Enviamos um link de ativação para <strong className="text-[#18201B]">{email}</strong>.
+            </p>
+            <p className="text-xs text-[#68736C] leading-relaxed max-w-xs bg-[#F6FAF7] p-3 rounded-xl border border-[#DDE8E0]/60">
+              Por favor, clique no link contido no e-mail para ativar sua conta. Após confirmar, você poderá fazer o login normalmente no Poupagaio.
+            </p>
+          </div>
+
+          {/* Status do Reenvio */}
+          {(resendSuccess || resendError) && (
+            <div className={`p-3.5 rounded-xl border text-xs text-center ${resendSuccess ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+              {resendSuccess && <p className="text-emerald-700 font-semibold">{resendSuccess}</p>}
+              {resendError && <p className="text-red-600 font-semibold">{resendError}</p>}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={onSwitchToLogin}
+              className="w-full py-3 px-4 bg-[#22C55E] hover:bg-[#16a34a] text-white font-bold text-sm rounded-xl shadow-xs transition-all active:scale-[0.99]"
+            >
+              Ir para Login
+            </button>
+
+            <button
+              type="button"
+              disabled={resendLoading}
+              onClick={handleResend}
+              className="w-full py-2.5 px-4 bg-transparent hover:bg-emerald-50/50 text-[#22C55E] font-bold text-xs rounded-xl border border-[#22C55E]/20 transition-all active:scale-[0.99] disabled:opacity-50"
+            >
+              {resendLoading ? 'Reenviando...' : 'Reenviar E-mail de Confirmação'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
