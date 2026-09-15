@@ -142,8 +142,9 @@ export async function registerUserWithSupabase(params: {
   user?: any;
 }> {
   const { name, email, phone, password } = params;
+  const normalizedEmail = email.trim().toLowerCase();
 
-  if (!isValidEmailFormat(email)) {
+  if (!isValidEmailFormat(normalizedEmail)) {
     return { success: false, needsEmailConfirmation: false, error: 'Formato de e-mail inválido.' };
   }
 
@@ -155,7 +156,7 @@ export async function registerUserWithSupabase(params: {
   if (supabase) {
     try {
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: normalizedEmail,
         password,
         options: {
           data: {
@@ -166,15 +167,34 @@ export async function registerUserWithSupabase(params: {
       });
 
       if (error) {
+        console.error('[Supabase Auth SignUp Error]', {
+          message: error.message,
+          status: error.status,
+          code: (error as any).code,
+        });
         return { success: false, needsEmailConfirmation: false, error: error.message };
       }
+
+      // Também salva no simulador local como fallback de persistência rápida
+      const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
+      const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
+      simulatedUsers[normalizedEmail] = {
+        id: data.user?.id || 'user-' + Date.now(),
+        email: normalizedEmail,
+        full_name: name.trim(),
+        password,
+        email_confirmed: true,
+        created_at: new Date().toISOString(),
+      };
+      localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
 
       return {
         success: true,
         needsEmailConfirmation: false,
-        user: data.user,
+        user: data.user || simulatedUsers[normalizedEmail],
       };
     } catch (err: any) {
+      console.error('[Supabase Auth SignUp Exception]', err);
       return { success: false, needsEmailConfirmation: false, error: err.message || 'Erro ao comunicar com Supabase.' };
     }
   }
@@ -182,24 +202,24 @@ export async function registerUserWithSupabase(params: {
   // Modo Local/Sandbox Simulado com acesso imediato
   const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
   const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
-  const key = email.trim().toLowerCase();
 
-  simulatedUsers[key] = {
+  const createdUser = {
     id: 'user-' + Date.now(),
-    email: key,
+    email: normalizedEmail,
     full_name: name.trim(),
     phone: phone ? phone.trim() : undefined,
-    password, // Salvo apenas localmente para teste de login
+    password,
     email_confirmed: true,
     created_at: new Date().toISOString(),
   };
 
+  simulatedUsers[normalizedEmail] = createdUser;
   localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
 
   return {
     success: true,
     needsEmailConfirmation: false,
-    user: simulatedUsers[key],
+    user: createdUser,
   };
 }
 
@@ -338,7 +358,8 @@ export async function loginUserWithSupabase(
   error?: string;
   user?: any;
 }> {
-  const check = checkLoginAttempts(email);
+  const normalizedEmail = email.trim().toLowerCase();
+  const check = checkLoginAttempts(normalizedEmail);
   if (check.isBlocked) {
     return {
       success: false,
@@ -349,22 +370,41 @@ export async function loginUserWithSupabase(
   if (supabase) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: normalizedEmail,
         password: pass,
       });
 
       if (error) {
-        recordFailedLoginAttempt(email);
+        console.error('[Supabase Auth Login Error]', {
+          message: error.message,
+          status: error.status,
+          code: (error as any).code,
+        });
+        recordFailedLoginAttempt(normalizedEmail);
+
+        if (
+          error.message?.toLowerCase().includes('email not confirmed') ||
+          (error as any).code === 'email_not_confirmed'
+        ) {
+          return {
+            success: false,
+            needsEmailConfirmation: true,
+            error:
+              'E-mail não confirmado no Supabase. No Dashboard do Supabase (Authentication > Email), certifique-se de que a opção "Confirm email" está desativada para acesso direto.',
+          };
+        }
+
         return {
           success: false,
           error: 'E-mail ou senha incorretos.',
         };
       }
 
-      resetLoginAttempts(email);
+      resetLoginAttempts(normalizedEmail);
       return { success: true, user: data.user };
-    } catch (err) {
-      recordFailedLoginAttempt(email);
+    } catch (err: any) {
+      console.error('[Supabase Auth Login Exception]', err);
+      recordFailedLoginAttempt(normalizedEmail);
       return {
         success: false,
         error: 'E-mail ou senha incorretos.',
@@ -375,38 +415,37 @@ export async function loginUserWithSupabase(
   // Verificação no banco de dados local simulado
   const raw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
   const users: Record<string, any> = raw ? JSON.parse(raw) : {};
-  const key = email.trim().toLowerCase();
-  const registeredUser = users[key];
+  const registeredUser = users[normalizedEmail];
 
   // Se o usuário foi cadastrado localmente
   if (registeredUser) {
     if (registeredUser.password !== pass) {
-      recordFailedLoginAttempt(email);
+      recordFailedLoginAttempt(normalizedEmail);
       return { success: false, error: 'E-mail ou senha incorretos.' };
     }
 
-    resetLoginAttempts(email);
+    resetLoginAttempts(normalizedEmail);
     return { success: true, user: registeredUser };
   }
 
   // Contas padrão de demonstração do Poupagaio (mateus@email.com, luana@email.com)
   if (
-    (key === 'mateus@email.com' || key === 'luana@email.com') &&
+    (normalizedEmail === 'mateus@email.com' || normalizedEmail === 'luana@email.com') &&
     pass.length >= 8
   ) {
-    resetLoginAttempts(email);
+    resetLoginAttempts(normalizedEmail);
     return {
       success: true,
       user: {
-        id: key === 'luana@email.com' ? 'user-luana-02' : 'user-mateus-01',
-        email: key,
-        full_name: key === 'luana@email.com' ? 'Luana Souza' : 'Mateus Araujo',
+        id: normalizedEmail === 'luana@email.com' ? 'user-luana-02' : 'user-mateus-01',
+        email: normalizedEmail,
+        full_name: normalizedEmail === 'luana@email.com' ? 'Luana Souza' : 'Mateus Araujo',
         email_confirmed: true,
       },
     };
   }
 
   // Credenciais não coincidem
-  recordFailedLoginAttempt(email);
+  recordFailedLoginAttempt(normalizedEmail);
   return { success: false, error: 'E-mail ou senha incorretos.' };
 }

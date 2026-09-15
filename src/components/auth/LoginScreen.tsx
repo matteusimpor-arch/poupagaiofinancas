@@ -75,8 +75,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
         return;
       }
 
-      // Conclui login no FinanceContext
-      await login(email, password);
+      // Conclui login no FinanceContext mantendo o auth.uid() do usuário
+      await login(email, password, res.user);
     } catch (err) {
       setError('E-mail ou senha incorretos.');
     } finally {

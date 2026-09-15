@@ -55,10 +55,10 @@ interface FinanceContextType {
   currentUser: Profile | null;
   isAuthenticated: boolean;
   isOnboarded: boolean;
-  login: (email: string, pass: string) => Promise<boolean>;
+  login: (email: string, pass: string, authenticatedUser?: any) => Promise<boolean>;
   loginWithGoogle: () => Promise<boolean>;
-  signup: (name: string, email: string, pass: string, phone?: string) => Promise<boolean>;
-  logout: () => void;
+  signup: (name: string, email: string, pass: string, phone?: string, authenticatedUser?: any) => Promise<boolean>;
+  logout: () => Promise<void>;
   updateProfile: (data: Partial<Profile>) => void;
   changePassword: (newPass: string) => Promise<boolean>;
   deleteAccount: () => Promise<void>;
@@ -643,59 +643,136 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const login = async (email: string, pass: string): Promise<boolean> => {
+  const login = async (email: string, pass: string, authenticatedUser?: any): Promise<boolean> => {
     if (pass.length < 8) return false;
-    try {
-      const fbUser = await loginWithEmail(email, pass);
-      if (fbUser) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // 1. Se um usuário do Supabase Auth / Local já foi autenticado e passado
+    if (authenticatedUser?.id) {
+      const profile: Profile = {
+        id: authenticatedUser.id,
+        email: authenticatedUser.email || normalizedEmail,
+        full_name:
+          authenticatedUser.user_metadata?.full_name ||
+          authenticatedUser.full_name ||
+          normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
+        avatar_url: authenticatedUser.user_metadata?.avatar_url || authenticatedUser.avatar_url,
+        due_alert_days: 3,
+        created_at: authenticatedUser.created_at || new Date().toISOString(),
+      };
+      setCurrentUser(profile);
+      saveToFirestore('users', profile.id, profile);
+      return true;
+    }
+
+    // 2. Se o Supabase Auth está ativo, efetua a autenticação direta
+    if (supabase) {
+      const res = await loginUserWithSupabase(normalizedEmail, pass);
+      if (res.success && res.user) {
         const profile: Profile = {
-          id: fbUser.uid,
-          email: fbUser.email || email,
+          id: res.user.id,
+          email: res.user.email || normalizedEmail,
           full_name:
-            fbUser.displayName ||
-            email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1),
+            res.user.user_metadata?.full_name ||
+            res.user.full_name ||
+            normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
+          avatar_url: res.user.user_metadata?.avatar_url,
           due_alert_days: 3,
-          created_at: new Date().toISOString(),
+          created_at: res.user.created_at || new Date().toISOString(),
         };
         setCurrentUser(profile);
         saveToFirestore('users', profile.id, profile);
         return true;
       }
-    } catch (fbErr) {
-      console.warn('Login Firebase fallback para conta demonstrativa:', fbErr);
     }
 
-    // Fallback gracioso para contas demonstrativas rápidas
-    if (email.toLowerCase().includes('luana')) {
+    // 3. Fallback no armazenamento de usuários simulados locais
+    const rawSim = localStorage.getItem('poupagaio_simulated_users');
+    if (rawSim) {
+      try {
+        const simUsers = JSON.parse(rawSim);
+        const simUser = simUsers[normalizedEmail];
+        if (simUser) {
+          const profile: Profile = {
+            id: simUser.id,
+            email: simUser.email,
+            full_name: simUser.full_name || normalizedEmail.split('@')[0],
+            due_alert_days: 3,
+            created_at: simUser.created_at || new Date().toISOString(),
+          };
+          setCurrentUser(profile);
+          saveToFirestore('users', profile.id, profile);
+          return true;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    // 4. Fallback de demonstração para contas de teste Mateus e Luana
+    if (normalizedEmail === 'mateus@email.com') {
+      setCurrentUser(INITIAL_USER);
+      saveToFirestore('users', INITIAL_USER.id, INITIAL_USER);
+      return true;
+    }
+    if (normalizedEmail === 'luana@email.com') {
       setCurrentUser(PARTNER_USER);
       saveToFirestore('users', PARTNER_USER.id, PARTNER_USER);
-    } else {
-      const demoUser: Profile = {
-        ...INITIAL_USER,
-        email,
-        full_name: email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1),
-      };
-      setCurrentUser(demoUser);
-      saveToFirestore('users', demoUser.id, demoUser);
+      return true;
     }
+
+    // 5. Perfil de fallback com ID determinístico
+    const fallbackId = 'user-' + normalizedEmail.replace(/[^a-z0-9]/g, '-');
+    const demoUser: Profile = {
+      id: fallbackId,
+      email: normalizedEmail,
+      full_name: normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
+      due_alert_days: 3,
+      created_at: new Date().toISOString(),
+    };
+    setCurrentUser(demoUser);
+    saveToFirestore('users', demoUser.id, demoUser);
     return true;
   };
 
-  const signup = async (name: string, email: string, pass: string, phone?: string): Promise<boolean> => {
+  const signup = async (
+    name: string,
+    email: string,
+    pass: string,
+    phone?: string,
+    authenticatedUser?: any
+  ): Promise<boolean> => {
     if (!name.trim() || !email.trim() || pass.length < 8) return false;
-    let newUserId = 'user-' + Date.now();
-    try {
-      const fbUser = await signupWithEmail(email.trim(), pass);
-      if (fbUser) {
-        newUserId = fbUser.uid;
+    const normalizedEmail = email.trim().toLowerCase();
+
+    let newUserId = authenticatedUser?.id;
+
+    if (!newUserId && supabase) {
+      const res = await registerUserWithSupabase({ name, email: normalizedEmail, phone, password: pass });
+      if (res.user?.id) {
+        newUserId = res.user.id;
       }
-    } catch (fbErr) {
-      console.warn('Cadastro Firebase Auth:', fbErr);
+    }
+
+    if (!newUserId) {
+      const rawSim = localStorage.getItem('poupagaio_simulated_users');
+      if (rawSim) {
+        try {
+          const simUsers = JSON.parse(rawSim);
+          if (simUsers[normalizedEmail]?.id) {
+            newUserId = simUsers[normalizedEmail].id;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!newUserId) {
+      newUserId = 'user-' + Date.now();
     }
 
     const newUser: Profile = {
       id: newUserId,
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       full_name: name.trim(),
       phone: phone?.trim(),
       due_alert_days: 3,
@@ -706,7 +783,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Conforme Seção 5: Todo usuário recebe automaticamente "Minhas finanças"
     const personalSpace: FinancialSpace = {
-      id: 'space-' + Date.now(),
+      id: 'space-' + newUserId,
       name: 'Minhas finanças',
       is_shared: false,
       owner_id: newUserId,
@@ -715,7 +792,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     const adminMember: SpaceMember = {
-      id: 'mem-' + Date.now(),
+      id: 'mem-' + newUserId,
       space_id: personalSpace.id,
       user_id: newUserId,
       role: 'admin',
@@ -723,7 +800,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       created_at: new Date().toISOString(),
     };
 
-    // Cria categorias padrões no novo espaço
     const userCategories: Category[] = DEFAULT_CATEGORIES.map((c) => ({
       ...c,
       id: `cat-${personalSpace.id}-${c.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
@@ -749,10 +825,18 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
-  const logout = () => {
-    logoutUser().catch(() => {});
-    setCurrentUser(null);
-    localStorage.removeItem(STORAGE_KEYS.USER);
+  const logout = async (): Promise<void> => {
+    try {
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+      await logoutUser().catch(() => {});
+    } catch (err) {
+      console.error('Erro no logout:', err);
+    } finally {
+      setCurrentUser(null);
+      localStorage.removeItem(STORAGE_KEYS.USER);
+    }
   };
 
   const updateProfile = (data: Partial<Profile>) => {

@@ -81,8 +81,8 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({ onSwitchToLogin 
         return;
       }
 
-      // Login imediato e simplificado sem exigência de confirmação de e-mail
-      await signup(name, email, password, phone);
+      // Login imediato e simplificado utilizando o auth.uid() retornado
+      await signup(name, email, password, phone, res.user);
     } catch (err) {
       setError('Erro ao cadastrar. Tente novamente.');
     } finally {
