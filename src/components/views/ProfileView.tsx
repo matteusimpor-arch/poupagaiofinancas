@@ -160,7 +160,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     <input
                       id="input-profile-lastname"
                       type="text"
-                      required
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       placeholder="Sobrenome"

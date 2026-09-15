@@ -43,41 +43,11 @@ import { ToastNotification } from './components/common/ToastNotification';
 const AppContent: React.FC = () => {
   const { currentUser, isOnboarded, selectedMonth } = useFinance();
 
-  // Helper para verificar se a rota atual é de redefinição de senha
-  const checkIsResetRoute = () => {
-    if (typeof window === 'undefined') return false;
-    const href = window.location.href;
-    const path = window.location.pathname;
-    const hash = window.location.hash;
-    return (
-      path.includes('redefinir-senha') ||
-      href.includes('redefinir-senha') ||
-      href.includes('type=recovery') ||
-      hash.includes('type=recovery') ||
-      hash.includes('reset-password')
-    );
-  };
-
   // Estados de navegação e autenticação
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
-  const [isResetPasswordView, setIsResetPasswordView] = useState<boolean>(checkIsResetRoute);
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!isOnboarded);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
-
-  React.useEffect(() => {
-    const handleLocationChange = () => {
-      if (checkIsResetRoute()) {
-        setIsResetPasswordView(true);
-      }
-    };
-    window.addEventListener('hashchange', handleLocationChange);
-    window.addEventListener('popstate', handleLocationChange);
-    return () => {
-      window.removeEventListener('hashchange', handleLocationChange);
-      window.removeEventListener('popstate', handleLocationChange);
-    };
-  }, []);
 
   // Garante que novos usuários cadastrados abram a tela de onboarding
   React.useEffect(() => {
@@ -122,7 +92,38 @@ const AppContent: React.FC = () => {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
 
-  // Exibe tela de redefinição de senha se o link de recuperação foi acionado
+  // Helper para verificar rota de redefinição de senha
+  const checkIsResetRoute = () => {
+    if (typeof window === 'undefined') return false;
+    const href = window.location.href;
+    const path = window.location.pathname;
+    const hash = window.location.hash;
+    return (
+      path.includes('redefinir-senha') ||
+      href.includes('redefinir-senha') ||
+      href.includes('type=recovery') ||
+      hash.includes('type=recovery') ||
+      hash.includes('reset-password')
+    );
+  };
+
+  const [isResetPasswordView, setIsResetPasswordView] = useState<boolean>(checkIsResetRoute());
+
+  // Listener para monitorar mudanças de hash/url para redefinição de senha
+  React.useEffect(() => {
+    const handleUrlChange = () => {
+      if (checkIsResetRoute()) {
+        setIsResetPasswordView(true);
+      }
+    };
+    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+    return () => {
+      window.removeEventListener('hashchange', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, []);
+
   if (isResetPasswordView) {
     return (
       <ResetPasswordScreen

@@ -28,6 +28,15 @@ const STORAGE_KEYS = {
   SIMULATED_USERS: 'poupagaio_simulated_users',
 };
 
+export function isSimulationActive(): boolean {
+  if (!isSupabaseConfigured) return true;
+  return localStorage.getItem('poupagaio_use_simulation') === 'true';
+}
+
+export function setSimulationActive(active: boolean): void {
+  localStorage.setItem('poupagaio_use_simulation', active ? 'true' : 'false');
+}
+
 export interface AuthAttemptRecord {
   count: number;
   firstAttemptTimestamp: number;
@@ -155,12 +164,22 @@ export async function registerUserWithSupabase(params: {
   // Se Supabase estiver conectado
   if (supabase) {
     try {
+      const isLocalhostOrPreview =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+         window.location.hostname === '127.0.0.1' ||
+         window.location.hostname.includes('run.app'));
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://poupagaiofinancas.vercel.app';
+      const redirectUrl = isLocalhostOrPreview ? `${origin}/auth/callback` : 'https://poupagaiofinancas.vercel.app/auth/callback';
+
       const { data, error } = await supabase.auth.signUp({
         email: normalizedEmail,
         password,
         options: {
+          emailRedirectTo: redirectUrl,
           data: {
             full_name: name.trim(),
+            name: name.trim(),
             phone: phone ? phone.trim() : undefined,
           },
         },
@@ -565,14 +584,24 @@ export async function signUpPasswordless(params: {
     return { success: false, error: 'Formato de e-mail inválido.' };
   }
 
-  if (supabase) {
+  if (supabase && !isSimulationActive()) {
     try {
+      const isLocalhostOrPreview =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+         window.location.hostname === '127.0.0.1' ||
+         window.location.hostname.includes('run.app'));
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://poupagaiofinancas.vercel.app';
+      const redirectUrl = isLocalhostOrPreview ? `${origin}/auth/callback` : 'https://poupagaiofinancas.vercel.app/auth/callback';
+
       const { error } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
           shouldCreateUser: true,
+          emailRedirectTo: redirectUrl,
           data: {
             full_name: name.trim(),
+            name: name.trim(),
           },
         },
       });
@@ -617,12 +646,21 @@ export async function signInPasswordless(email: string): Promise<{
     return { success: false, error: 'Formato de e-mail inválido.' };
   }
 
-  if (supabase) {
+  if (supabase && !isSimulationActive()) {
     try {
+      const isLocalhostOrPreview =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+         window.location.hostname === '127.0.0.1' ||
+         window.location.hostname.includes('run.app'));
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://poupagaiofinancas.vercel.app';
+      const redirectUrl = isLocalhostOrPreview ? `${origin}/auth/callback` : 'https://poupagaiofinancas.vercel.app/auth/callback';
+
       const { error } = await supabase.auth.signInWithOtp({
         email: normalizedEmail,
         options: {
           shouldCreateUser: false, // Só faz login se já existir
+          emailRedirectTo: redirectUrl,
         },
       });
 
@@ -662,7 +700,7 @@ export async function verifyOtpCode(
   const normalizedEmail = email.trim().toLowerCase();
   const tokenClean = token.trim();
 
-  if (supabase) {
+  if (supabase && !isSimulationActive()) {
     try {
       // Tenta primeiro com o tipo apropriado
       const primaryType = isRegister ? 'signup' : 'email';
