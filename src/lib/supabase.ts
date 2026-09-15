@@ -229,6 +229,83 @@ export async function resendConfirmationEmail(email: string): Promise<{ success:
 }
 
 /**
+ * Solicitação segura de recuperação de senha via Supabase Auth (Seções 9, 10, 11, 14)
+ */
+export async function sendPasswordResetEmail(email: string): Promise<{ success: boolean; message: string; error?: string }> {
+  if (!isValidEmailFormat(email)) {
+    return {
+      success: false,
+      message: 'Por favor, informe um endereço de e-mail válido.',
+      error: 'Formato de e-mail inválido.',
+    };
+  }
+
+  const genericSuccessMessage =
+    'Se existir uma conta associada a esse e-mail, enviaremos as instruções para redefinir a senha.';
+
+  if (supabase) {
+    try {
+      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/#reset-password` : undefined;
+      await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: redirectUrl,
+      });
+      return { success: true, message: genericSuccessMessage };
+    } catch (err: any) {
+      return { success: true, message: genericSuccessMessage };
+    }
+  }
+
+  // Modo local simulado
+  return { success: true, message: genericSuccessMessage };
+}
+
+/**
+ * Redefinição de senha via token do Supabase Auth (Seções 12, 13)
+ */
+export async function updateUserPassword(
+  newPassword: string,
+  userEmail?: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  if (newPassword.length < 8) {
+    return {
+      success: false,
+      error: 'A nova senha deve possuir no mínimo 8 caracteres.',
+    };
+  }
+
+  if (supabase) {
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      return { success: true, message: 'Senha alterada com sucesso.' };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro ao redefinir a senha.' };
+    }
+  }
+
+  // Modo local simulado
+  if (userEmail) {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
+      if (raw) {
+        const users = JSON.parse(raw);
+        const key = userEmail.trim().toLowerCase();
+        if (users[key]) {
+          users[key].password = newPassword;
+          localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(users));
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  return { success: true, message: 'Senha alterada com sucesso.' };
+}
+
+/**
  * Confirmação manual de e-mail em ambiente simulado
  */
 export function simulateConfirmEmail(email: string): boolean {

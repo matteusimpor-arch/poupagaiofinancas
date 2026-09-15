@@ -43,6 +43,7 @@ import {
   logoutUser,
 } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { supabase } from '../lib/supabase';
 import {
   saveToFirestore,
   deleteFromFirestore,
@@ -448,8 +449,153 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveToFirestore('audit_logs', newLog.id, newLog);
   };
 
-  // Monitora alterações de autenticação no Firebase Auth
+  // Isolamento de Dados por Usuário no LocalStorage (Seções 6, 7 e 18)
   useEffect(() => {
+    if (!currentUser?.id) return;
+    const userKey = `poupagaio_user_data_${currentUser.id}`;
+    const savedData = localStorage.getItem(userKey);
+
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        if (parsed.spaces) setSpaces(parsed.spaces);
+        if (parsed.selectedSpaceId) setSelectedSpaceId(parsed.selectedSpaceId);
+        if (parsed.categories) setCategories(parsed.categories);
+        if (parsed.transactions) setTransactions(parsed.transactions);
+        if (parsed.installmentPurchases) setInstallmentPurchases(parsed.installmentPurchases);
+        if (parsed.installments) setInstallments(parsed.installments);
+        if (parsed.investments) setInvestments(parsed.investments);
+        if (parsed.goals) setGoals(parsed.goals);
+        if (parsed.goalMovements) setGoalMovements(parsed.goalMovements);
+        if (parsed.wishlist) setWishlist(parsed.wishlist);
+        if (parsed.monthlyPlans) setMonthlyPlans(parsed.monthlyPlans);
+        if (parsed.monthlyClosings) setMonthlyClosings(parsed.monthlyClosings);
+      } catch (e) {
+        // Fallback gracioso
+      }
+    } else if (currentUser.id !== 'user-mateus-01' && currentUser.id !== 'user-luana-02') {
+      // Novo usuário (ex: Usuário B no Teste de Isolamento): Inicializa com ambiente isolado limpo
+      const personalSpace: FinancialSpace = {
+        id: 'space-' + currentUser.id,
+        name: 'Minhas finanças',
+        is_shared: false,
+        owner_id: currentUser.id,
+        created_at: new Date().toISOString(),
+        members_count: 1,
+      };
+
+      const adminMember: SpaceMember = {
+        id: 'mem-' + currentUser.id,
+        space_id: personalSpace.id,
+        user_id: currentUser.id,
+        role: 'admin',
+        user: currentUser,
+        created_at: new Date().toISOString(),
+      };
+
+      const userCategories: Category[] = DEFAULT_CATEGORIES.map((c) => ({
+        ...c,
+        id: `cat-${personalSpace.id}-${c.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+        space_id: personalSpace.id,
+      }));
+
+      setSpaces([personalSpace]);
+      setSpaceMembers([adminMember]);
+      setSelectedSpaceId(personalSpace.id);
+      setCategories(userCategories);
+      setTransactions([]);
+      setInstallmentPurchases([]);
+      setInstallments([]);
+      setInvestments([]);
+      setGoals([]);
+      setGoalMovements([]);
+      setWishlist([]);
+      setMonthlyPlans([]);
+      setMonthlyClosings([]);
+    }
+  }, [currentUser?.id]);
+
+  // Salva dados isolados do usuário logado em tempo real
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const userKey = `poupagaio_user_data_${currentUser.id}`;
+    const userData = {
+      spaces,
+      selectedSpaceId,
+      categories,
+      transactions,
+      installmentPurchases,
+      installments,
+      investments,
+      goals,
+      goalMovements,
+      wishlist,
+      monthlyPlans,
+      monthlyClosings,
+    };
+    localStorage.setItem(userKey, JSON.stringify(userData));
+  }, [
+    currentUser?.id,
+    spaces,
+    selectedSpaceId,
+    categories,
+    transactions,
+    installmentPurchases,
+    installments,
+    investments,
+    goals,
+    goalMovements,
+    wishlist,
+    monthlyPlans,
+    monthlyClosings,
+  ]);
+
+  // Monitora alterações de autenticação no Supabase Auth e Firebase Auth
+  useEffect(() => {
+    if (supabase) {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user) {
+          const userObj = session.user;
+          const profile: Profile = {
+            id: userObj.id,
+            email: userObj.email || '',
+            full_name:
+              userObj.user_metadata?.full_name ||
+              userObj.user_metadata?.name ||
+              userObj.email?.split('@')[0] ||
+              'Usuário Poupagaio',
+            avatar_url: userObj.user_metadata?.avatar_url,
+            due_alert_days: 3,
+            created_at: userObj.created_at || new Date().toISOString(),
+          };
+          setCurrentUser(profile);
+        }
+      });
+
+      const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) {
+          const userObj = session.user;
+          const profile: Profile = {
+            id: userObj.id,
+            email: userObj.email || '',
+            full_name:
+              userObj.user_metadata?.full_name ||
+              userObj.user_metadata?.name ||
+              userObj.email?.split('@')[0] ||
+              'Usuário Poupagaio',
+            avatar_url: userObj.user_metadata?.avatar_url,
+            due_alert_days: 3,
+            created_at: userObj.created_at || new Date().toISOString(),
+          };
+          setCurrentUser(profile);
+        }
+      });
+
+      return () => {
+        authListener?.subscription?.unsubscribe();
+      };
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       if (firebaseUser) {
         const userProfile: Profile = {
@@ -465,16 +611,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
         setCurrentUser(userProfile);
         saveToFirestore('users', userProfile.id, userProfile);
-
-        // Inicializa dados no Firebase Firestore se o espaço ainda estiver vazio
-        seedSpaceDataIfEmpty('space-couple-02', {
-          categories: DEFAULT_CATEGORIES,
-          transactions: INITIAL_TRANSACTIONS,
-          goals: INITIAL_GOALS,
-          investments: INITIAL_INVESTMENTS,
-          wishlist: INITIAL_WISHLIST,
-          plans: INITIAL_MONTHLY_PLANS,
-        });
       }
     });
     return () => unsubscribe();

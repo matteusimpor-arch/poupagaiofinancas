@@ -11,6 +11,7 @@ import { MobileDrawer } from './components/navigation/MobileDrawer';
 // Autenticação & Onboarding
 import { LoginScreen } from './components/auth/LoginScreen';
 import { RegisterScreen } from './components/auth/RegisterScreen';
+import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { OnboardingModal } from './components/auth/OnboardingModal';
 
 // Telas / Views
@@ -43,9 +44,31 @@ const AppContent: React.FC = () => {
 
   // Estados de navegação e autenticação
   const [authView, setAuthView] = useState<'login' | 'register'>('register');
+  const [isResetPasswordView, setIsResetPasswordView] = useState<boolean>(() => {
+    return (
+      typeof window !== 'undefined' &&
+      (window.location.hash.includes('reset-password') ||
+        window.location.href.includes('type=recovery') ||
+        window.location.hash.includes('type=recovery'))
+    );
+  });
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!isOnboarded);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+
+  React.useEffect(() => {
+    const handleHashChange = () => {
+      if (
+        window.location.hash.includes('reset-password') ||
+        window.location.href.includes('type=recovery') ||
+        window.location.hash.includes('type=recovery')
+      ) {
+        setIsResetPasswordView(true);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   // Garante que novos usuários cadastrados abram a tela de onboarding
   React.useEffect(() => {
@@ -89,6 +112,22 @@ const AppContent: React.FC = () => {
   const [isSpaceModalOpen, setIsSpaceModalOpen] = useState(false);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
+
+  // Exibe tela de redefinição de senha se o link de recuperação foi acionado
+  if (isResetPasswordView) {
+    return (
+      <ResetPasswordScreen
+        userEmail={currentUser?.email}
+        onComplete={() => {
+          if (typeof window !== 'undefined') {
+            window.location.hash = '';
+          }
+          setIsResetPasswordView(false);
+          setAuthView('login');
+        }}
+      />
+    );
+  }
 
   // Se o usuário não estiver autenticado, exibe tela de login ou cadastro
   if (!currentUser) {

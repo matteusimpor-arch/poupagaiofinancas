@@ -6,7 +6,7 @@ import {
   checkLoginAttempts,
   isValidEmailFormat,
   loginUserWithSupabase,
-  resendConfirmationEmail,
+  sendPasswordResetEmail,
 } from '../../lib/supabase';
 
 interface LoginScreenProps {
@@ -84,6 +84,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
     }
   };
 
+  const [forgotMessage, setForgotMessage] = useState<string>('');
+
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -94,9 +96,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
 
     setForgotLoading(true);
     try {
-      await resendConfirmationEmail(forgotEmail);
+      const res = await sendPasswordResetEmail(forgotEmail);
+      setForgotMessage(res.message);
       setForgotSent(true);
     } catch (e) {
+      setForgotMessage('Se existir uma conta associada a esse e-mail, enviaremos as instruções para redefinir a senha.');
       setForgotSent(true);
     } finally {
       setForgotLoading(false);
@@ -155,11 +159,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSwitchToRegister }) 
             {forgotSent ? (
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs font-semibold text-emerald-800 space-y-2">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 size={18} className="text-[#22C55E]" />
-                  <span>Link enviado com sucesso!</span>
+                  <CheckCircle2 size={18} className="text-[#22C55E] shrink-0" />
+                  <span>Solicitação recebida</span>
                 </div>
-                <p className="text-[11px] text-[#68736C] font-normal">
-                  Verifique sua caixa de entrada e a pasta de spam.
+                <p className="text-[12px] text-[#0D3B22] font-normal leading-relaxed">
+                  {forgotMessage || 'Se existir uma conta associada a esse e-mail, enviaremos as instruções para redefinir a senha.'}
                 </p>
               </div>
             ) : (
