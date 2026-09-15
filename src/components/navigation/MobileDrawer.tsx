@@ -13,7 +13,6 @@ import {
   Users,
   Shield,
   Plus,
-  ShoppingCart,
 } from 'lucide-react';
 import { useFinance } from '../../context/FinanceContext';
 import { PoupagaioLogo } from '../common/PoupagaioLogo';
@@ -42,7 +41,6 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
     { id: 'movimentacoes', label: 'Lançamentos e Contas', icon: ArrowLeftRight },
-    { id: 'mercado', label: '🛒 Mercado (Lista & Compra)', icon: ShoppingCart },
     { id: 'planejamento', label: 'Planejamento Mensal', icon: SlidersHorizontal },
     { id: 'investimentos', label: 'Investimentos', icon: TrendingUp },
     { id: 'metas', label: 'Metas Financeiras', icon: Target },

@@ -43,7 +43,7 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({ isOpen, onFini
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
-              src="/logo-poupagaio-principal.png"
+              src="/logo-poupagaio.png"
               alt="Mascote Poupagaio"
               referrerPolicy="no-referrer"
               className="w-12 h-12 object-contain"

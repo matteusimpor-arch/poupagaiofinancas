@@ -66,8 +66,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     monthlyClosings,
     markTransactionAsPaid,
     payInstallment,
-    shoppingLists,
-    shoppingItems,
   } = useFinance();
 
   const [quickPayItem, setQuickPayItem] = useState<QuickPayItem | null>(null);
@@ -222,48 +220,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
       )}
-
-      {/* Atalho de Lista de Mercado Ativa */}
-      {(() => {
-        const activeMarketList = shoppingLists.find((l) => l.status === 'shopping' || l.status === 'draft');
-        if (!activeMarketList) return null;
-        const itemsCount = shoppingItems.filter((i) => i.shopping_list_id === activeMarketList.id).length;
-        return (
-          <div className="bg-white rounded-2xl p-4 border border-[#22C55E]/30 bg-gradient-to-r from-[#DCFCE7]/40 to-white shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#22C55E] text-white flex items-center justify-center font-bold text-lg shrink-0">
-                🛒
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="font-bold text-[#0D3B22] text-sm">{activeMarketList.name}</h4>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      activeMarketList.status === 'shopping'
-                        ? 'bg-amber-100 text-amber-800 animate-pulse'
-                        : 'bg-emerald-100 text-emerald-800'
-                    }`}
-                  >
-                    {activeMarketList.status === 'shopping' ? 'Em andamento' : 'Em preparação'}
-                  </span>
-                </div>
-                <p className="text-xs text-[#68736C]">
-                  {itemsCount} {itemsCount === 1 ? 'item' : 'itens'}
-                  {activeMarketList.budget ? ` • Orçamento: ${formatCurrency(activeMarketList.budget)}` : ''}
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => onNavigateTab('mercado')}
-              className="w-full sm:w-auto text-xs font-bold text-[#16A34A] bg-white px-3.5 py-2 rounded-xl border border-[#DDE8E0] shadow-2xs hover:bg-[#F6FAF7] transition-colors text-center"
-            >
-              {activeMarketList.status === 'shopping' ? 'Continuar compra →' : 'Abrir lista →'}
-            </button>
-          </div>
-        );
-      })()}
 
       {/* Grid de Cards de Saldo e Resumos Financeiros */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

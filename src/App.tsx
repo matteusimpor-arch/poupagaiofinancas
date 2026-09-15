@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { FinanceProvider, useFinance } from './context/FinanceContext';
 import { Transaction, Goal, Investment, WishlistItem } from './types';
-import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 // Navegação
 import { Sidebar } from './components/navigation/Sidebar';
@@ -12,7 +11,6 @@ import { MobileDrawer } from './components/navigation/MobileDrawer';
 // Autenticação & Onboarding
 import { LoginScreen } from './components/auth/LoginScreen';
 import { RegisterScreen } from './components/auth/RegisterScreen';
-import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
 import { OnboardingModal } from './components/auth/OnboardingModal';
 
 // Telas / Views
@@ -22,7 +20,6 @@ import { PlanningView } from './components/views/PlanningView';
 import { InvestmentsView } from './components/views/InvestmentsView';
 import { GoalsView } from './components/views/GoalsView';
 import { WishlistView } from './components/views/WishlistView';
-import { MercadoView } from './components/views/MercadoView';
 import { ReportsView } from './components/views/ReportsView';
 import { ProfileView } from './components/views/ProfileView';
 
@@ -45,7 +42,7 @@ const AppContent: React.FC = () => {
   const { currentUser, isOnboarded, selectedMonth } = useFinance();
 
   // Estados de navegação e autenticação
-  const [authView, setAuthView] = useState<'login' | 'register'>('login');
+  const [authView, setAuthView] = useState<'login' | 'register'>('register');
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [showOnboarding, setShowOnboarding] = useState<boolean>(!isOnboarded);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -93,56 +90,6 @@ const AppContent: React.FC = () => {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
 
-  // Helper para verificar rota de redefinição de senha
-  const checkIsResetRoute = () => {
-    if (typeof window === 'undefined') return false;
-    const href = window.location.href;
-    const path = window.location.pathname;
-    const hash = window.location.hash;
-    return (
-      path.includes('redefinir-senha') ||
-      href.includes('redefinir-senha') ||
-      href.includes('type=recovery') ||
-      hash.includes('type=recovery') ||
-      hash.includes('reset-password')
-    );
-  };
-
-  const [isResetPasswordView, setIsResetPasswordView] = useState<boolean>(checkIsResetRoute());
-
-  // Listener para monitorar mudanças de hash/url para redefinição de senha
-  React.useEffect(() => {
-    const handleUrlChange = () => {
-      if (checkIsResetRoute()) {
-        setIsResetPasswordView(true);
-      }
-    };
-    window.addEventListener('hashchange', handleUrlChange);
-    window.addEventListener('popstate', handleUrlChange);
-    return () => {
-      window.removeEventListener('hashchange', handleUrlChange);
-      window.removeEventListener('popstate', handleUrlChange);
-    };
-  }, []);
-
-  if (isResetPasswordView) {
-    return (
-      <ResetPasswordScreen
-        userEmail={currentUser?.email}
-        onComplete={() => {
-          if (typeof window !== 'undefined') {
-            window.location.hash = '';
-            if (window.location.pathname.includes('redefinir-senha')) {
-              window.history.replaceState({}, '', '/');
-            }
-          }
-          setIsResetPasswordView(false);
-          setAuthView('login');
-        }}
-      />
-    );
-  }
-
   // Se o usuário não estiver autenticado, exibe tela de login ou cadastro
   if (!currentUser) {
     if (authView === 'login') {
@@ -170,8 +117,6 @@ const AppContent: React.FC = () => {
     } else if (type === 'wishlist') {
       setEditingWishlist(null);
       setIsWishlistModalOpen(true);
-    } else if (type === 'market_list') {
-      setCurrentTab('mercado');
     }
   };
 
@@ -321,10 +266,6 @@ const AppContent: React.FC = () => {
             />
           )}
 
-          {currentTab === 'mercado' && (
-            <MercadoView onNavigateTab={setCurrentTab} />
-          )}
-
           {currentTab === 'relatorios' && <ReportsView />}
 
           {currentTab === 'perfil' && (
@@ -458,10 +399,8 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <ErrorBoundary>
-      <FinanceProvider>
-        <AppContent />
-      </FinanceProvider>
-    </ErrorBoundary>
+    <FinanceProvider>
+      <AppContent />
+    </FinanceProvider>
   );
 }

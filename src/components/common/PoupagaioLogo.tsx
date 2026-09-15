@@ -22,8 +22,6 @@ export const PoupagaioLogo: React.FC<PoupagaioLogoProps> = ({
 
   const current = sizeMap[size];
 
-  const logoSrc = size === 'sm' ? '/logo-poupagaio-icone.png' : '/logo-poupagaio-principal.png';
-
   return (
     <div
       id="poupagaio-brand-logo"
@@ -32,7 +30,7 @@ export const PoupagaioLogo: React.FC<PoupagaioLogoProps> = ({
     >
       <div className="relative shrink-0 flex items-center justify-center">
         <img
-          src={logoSrc}
+          src="/logo-poupagaio.png"
           alt="Papagaio verde segurando moeda de ouro - Mascote oficial Poupagaio"
           referrerPolicy="no-referrer"
           className={`${current.img} object-contain rounded-xl drop-shadow-sm`}

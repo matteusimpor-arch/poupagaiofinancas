@@ -4,8 +4,6 @@ export interface Profile {
   id: string;
   email: string;
   full_name: string;
-  first_name?: string;
-  last_name?: string;
   phone?: string;
   avatar_url?: string;
   due_alert_days: 3 | 5 | 7;
@@ -329,43 +327,3 @@ export interface AuditLog {
   details?: Record<string, any>;
   created_at: string;
 }
-
-export type ShoppingListStatus = 'draft' | 'shopping' | 'completed';
-export type ShoppingItemStatus = 'pending' | 'in_cart' | 'skipped';
-
-export interface ShoppingList {
-  id: string;
-  space_id: string;
-  user_id: string;
-  name: string;
-  budget?: number;
-  status: ShoppingListStatus;
-  total: number;
-  financial_transaction_id?: string;
-  created_at: string;
-  started_at?: string;
-  completed_at?: string;
-}
-
-export interface ShoppingItem {
-  id: string;
-  shopping_list_id: string;
-  user_id: string;
-  name: string;
-  quantity: number;
-  unit_price?: number;
-  subtotal: number;
-  status: ShoppingItemStatus;
-  last_price_reference?: number;
-  created_at: string;
-  updated_at?: string;
-}
-
-export interface ShoppingPriceReference {
-  id: string;
-  user_id: string;
-  product_name: string;
-  unit_price: number;
-  updated_at: string;
-}
-

@@ -16,9 +16,6 @@ import {
   MonthlyClosing,
   NotificationItem,
   AuditLog,
-  ShoppingList,
-  ShoppingItem,
-  ShoppingPriceReference,
 } from '../types';
 import {
   INITIAL_USER,
@@ -35,24 +32,21 @@ import {
   INITIAL_MONTHLY_PLANS,
   INITIAL_NOTIFICATIONS,
   INITIAL_AUDIT_LOGS,
-  INITIAL_SHOPPING_LISTS,
-  INITIAL_SHOPPING_ITEMS,
 } from '../data/mockInitialData';
 import { DEFAULT_CATEGORIES } from '../data/defaultCategories';
 import { computeAccountStatus, evaluateMonthClosing } from '../lib/calculations';
 import {
-  supabase,
-  loginUserWithSupabase,
-  registerUserWithSupabase,
-  updateUserPasswordWithSupabase,
-  updateUserProfileMetadataWithSupabase,
-} from '../lib/supabase';
+  auth,
+  loginWithGoogle as firebaseLoginGoogle,
+  loginWithEmail,
+  signupWithEmail,
+  logoutUser,
+} from '../lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 import {
   saveToFirestore,
   deleteFromFirestore,
   seedSpaceDataIfEmpty,
-  saveUserDataToCloud,
-  subscribeToUserDataCloud,
 } from '../lib/firestoreSync';
 
 interface FinanceContextType {
@@ -60,11 +54,11 @@ interface FinanceContextType {
   currentUser: Profile | null;
   isAuthenticated: boolean;
   isOnboarded: boolean;
-  login: (email: string, pass: string, authenticatedUser?: any) => Promise<boolean>;
+  login: (email: string, pass: string) => Promise<boolean>;
   loginWithGoogle: () => Promise<boolean>;
-  signup: (name: string, email: string, pass: string, phone?: string, authenticatedUser?: any) => Promise<boolean>;
-  logout: () => Promise<void>;
-  updateProfile: (data: Partial<Profile> & { first_name?: string; last_name?: string }) => void;
+  signup: (name: string, email: string, pass: string, phone?: string) => Promise<boolean>;
+  logout: () => void;
+  updateProfile: (data: Partial<Profile>) => void;
   changePassword: (newPass: string) => Promise<boolean>;
   deleteAccount: () => Promise<void>;
   completeOnboarding: (usageType: 'individual' | 'shared') => void;
@@ -180,23 +174,6 @@ interface FinanceContextType {
   markNotificationAsRead: (id: string) => void;
   clearAllNotifications: () => void;
 
-  // Mercado / Lista de Compras
-  shoppingLists: ShoppingList[];
-  shoppingItems: ShoppingItem[];
-  shoppingPriceReferences: Record<string, number>;
-  createShoppingList: (name: string, budget?: number) => Promise<ShoppingList>;
-  updateShoppingList: (id: string, updates: Partial<ShoppingList>) => Promise<void>;
-  deleteShoppingList: (id: string) => Promise<void>;
-  addShoppingItem: (listId: string, name: string, quantity?: number) => Promise<ShoppingItem>;
-  updateShoppingItem: (id: string, updates: Partial<ShoppingItem>) => Promise<void>;
-  removeShoppingItem: (id: string) => Promise<void>;
-  startShopping: (listId: string) => Promise<void>;
-  finishShopping: (
-    listId: string
-  ) => Promise<{ list: ShoppingList; total: number; boughtCount: number; skippedCount: number }>;
-  registerShoppingTransaction: (listId: string) => Promise<Transaction | null>;
-  duplicateShoppingList: (listId: string, newName?: string) => Promise<ShoppingList>;
-
   // Auditoria
   auditLogs: AuditLog[];
 
@@ -234,9 +211,6 @@ const STORAGE_KEYS = {
   CLOSINGS: 'poupagaio_closings_data',
   NOTIFICATIONS: 'poupagaio_notifications_data',
   AUDIT: 'poupagaio_audit_data',
-  SHOPPING_LISTS: 'poupagaio_shopping_lists_data',
-  SHOPPING_ITEMS: 'poupagaio_shopping_items_data',
-  SHOPPING_PRICES: 'poupagaio_shopping_prices_data',
 };
 
 export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -355,23 +329,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
   });
 
-  // 14. Mercado / Lista de Compras
-  const [shoppingLists, setShoppingLists] = useState<ShoppingList[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SHOPPING_LISTS);
-    return saved ? JSON.parse(saved) : INITIAL_SHOPPING_LISTS;
-  });
-
-  const [shoppingItems, setShoppingItems] = useState<ShoppingItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SHOPPING_ITEMS);
-    return saved ? JSON.parse(saved) : INITIAL_SHOPPING_ITEMS;
-  });
-
-  const [shoppingPriceReferences, setShoppingPriceReferences] = useState<Record<string, number>>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.SHOPPING_PRICES);
-    return saved ? JSON.parse(saved) : {};
-  });
-
-  // 15. Toast Feedback
+  // 14. Toast Feedback
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'info' | 'error';
@@ -461,18 +419,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.setItem(STORAGE_KEYS.AUDIT, JSON.stringify(auditLogs));
   }, [auditLogs]);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SHOPPING_LISTS, JSON.stringify(shoppingLists));
-  }, [shoppingLists]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SHOPPING_ITEMS, JSON.stringify(shoppingItems));
-  }, [shoppingItems]);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SHOPPING_PRICES, JSON.stringify(shoppingPriceReferences));
-  }, [shoppingPriceReferences]);
-
   // Espaço Ativo Atual
   const currentSpace =
     spaces.find((s) => s.id === selectedSpaceId) ||
@@ -502,392 +448,118 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveToFirestore('audit_logs', newLog.id, newLog);
   };
 
-  // Carrega e sincroniza em tempo real dados do usuário (LocalStorage + Cloud Firestore para múltiplos dispositivos)
+  // Monitora alterações de autenticação no Firebase Auth
   useEffect(() => {
-    if (!currentUser?.id) return;
-
-    // 1. Carrega de imediato do LocalStorage (se existir) para renderização instantânea sem latency
-    const userKey = `poupagaio_user_data_${currentUser.id}`;
-    const savedData = localStorage.getItem(userKey);
-
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        if (parsed.spaces) setSpaces(parsed.spaces);
-        if (parsed.selectedSpaceId) setSelectedSpaceId(parsed.selectedSpaceId);
-        if (parsed.categories) setCategories(parsed.categories);
-        if (parsed.transactions) setTransactions(parsed.transactions);
-        if (parsed.installmentPurchases) setInstallmentPurchases(parsed.installmentPurchases);
-        if (parsed.installments) setInstallments(parsed.installments);
-        if (parsed.investments) setInvestments(parsed.investments);
-        if (parsed.goals) setGoals(parsed.goals);
-        if (parsed.goalMovements) setGoalMovements(parsed.goalMovements);
-        if (parsed.wishlist) setWishlist(parsed.wishlist);
-        if (parsed.monthlyPlans) setMonthlyPlans(parsed.monthlyPlans);
-        if (parsed.monthlyClosings) setMonthlyClosings(parsed.monthlyClosings);
-        if (parsed.shoppingLists) setShoppingLists(parsed.shoppingLists);
-        if (parsed.shoppingItems) setShoppingItems(parsed.shoppingItems);
-        if (parsed.shoppingPriceReferences) setShoppingPriceReferences(parsed.shoppingPriceReferences);
-      } catch (e) {
-        // Fallback gracioso
-      }
-    } else if (currentUser.id !== 'user-mateus-01' && currentUser.id !== 'user-luana-02') {
-      // Novo usuário: Inicializa com ambiente isolado limpo
-      const personalSpace: FinancialSpace = {
-        id: 'space-' + currentUser.id,
-        name: 'Minhas finanças',
-        is_shared: false,
-        owner_id: currentUser.id,
-        created_at: new Date().toISOString(),
-        members_count: 1,
-      };
-
-      const adminMember: SpaceMember = {
-        id: 'mem-' + currentUser.id,
-        space_id: personalSpace.id,
-        user_id: currentUser.id,
-        role: 'admin',
-        user: currentUser,
-        created_at: new Date().toISOString(),
-      };
-
-      const userCategories: Category[] = DEFAULT_CATEGORIES.map((c) => ({
-        ...c,
-        id: `cat-${personalSpace.id}-${c.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-        space_id: personalSpace.id,
-      }));
-
-      setSpaces([personalSpace]);
-      setSpaceMembers([adminMember]);
-      setSelectedSpaceId(personalSpace.id);
-      setCategories(userCategories);
-      setTransactions([]);
-      setInstallmentPurchases([]);
-      setInstallments([]);
-      setInvestments([]);
-      setGoals([]);
-      setGoalMovements([]);
-      setWishlist([]);
-      setMonthlyPlans([]);
-      setMonthlyClosings([]);
-      setShoppingLists([]);
-      setShoppingItems([]);
-      setShoppingPriceReferences({});
-    }
-
-    // 2. Inscreve no listener de sincronização em nuvem (permitindo sincronização Celular <-> Computador em tempo real)
-    const unsubCloud = subscribeToUserDataCloud(currentUser.id, (remoteData) => {
-      if (!remoteData) return;
-      if (remoteData.spaces) setSpaces(remoteData.spaces);
-      if (remoteData.selectedSpaceId) setSelectedSpaceId(remoteData.selectedSpaceId);
-      if (remoteData.categories) setCategories(remoteData.categories);
-      if (remoteData.transactions) setTransactions(remoteData.transactions);
-      if (remoteData.installmentPurchases) setInstallmentPurchases(remoteData.installmentPurchases);
-      if (remoteData.installments) setInstallments(remoteData.installments);
-      if (remoteData.investments) setInvestments(remoteData.investments);
-      if (remoteData.goals) setGoals(remoteData.goals);
-      if (remoteData.goalMovements) setGoalMovements(remoteData.goalMovements);
-      if (remoteData.wishlist) setWishlist(remoteData.wishlist);
-      if (remoteData.monthlyPlans) setMonthlyPlans(remoteData.monthlyPlans);
-      if (remoteData.monthlyClosings) setMonthlyClosings(remoteData.monthlyClosings);
-      if (remoteData.shoppingLists) setShoppingLists(remoteData.shoppingLists);
-      if (remoteData.shoppingItems) setShoppingItems(remoteData.shoppingItems);
-      if (remoteData.shoppingPriceReferences) setShoppingPriceReferences(remoteData.shoppingPriceReferences);
-    });
-
-    return () => {
-      unsubCloud();
-    };
-  }, [currentUser?.id]);
-
-  // Salva dados do usuário no LocalStorage e no Cloud Firestore em tempo real
-  useEffect(() => {
-    if (!currentUser?.id) return;
-    const userKey = `poupagaio_user_data_${currentUser.id}`;
-    const userData = {
-      spaces,
-      selectedSpaceId,
-      categories,
-      transactions,
-      installmentPurchases,
-      installments,
-      investments,
-      goals,
-      goalMovements,
-      wishlist,
-      monthlyPlans,
-      monthlyClosings,
-      shoppingLists,
-      shoppingItems,
-      shoppingPriceReferences,
-    };
-    localStorage.setItem(userKey, JSON.stringify(userData));
-    saveUserDataToCloud(currentUser.id, userData);
-  }, [
-    currentUser?.id,
-    spaces,
-    selectedSpaceId,
-    categories,
-    transactions,
-    installmentPurchases,
-    installments,
-    investments,
-    goals,
-    goalMovements,
-    wishlist,
-    monthlyPlans,
-    monthlyClosings,
-    shoppingLists,
-    shoppingItems,
-    shoppingPriceReferences,
-  ]);
-
-  // Monitora alterações de autenticação exclusivamente no Supabase Auth e trata o callback (Seções 7 e 13)
-  useEffect(() => {
-    if (!supabase) return;
-
-    // Trata callback de troca de código por sessão (PKCE flow)
-    const handleCallback = async () => {
-      const searchParams = new URLSearchParams(window.location.search);
-      const code = searchParams.get('code');
-      const path = window.location.pathname;
-
-      if (code || path.includes('/auth/callback')) {
-        try {
-          if (code) {
-            const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-            if (error) {
-              console.error('[Supabase PKCE Exchange Error]', error);
-            } else if (data?.session) {
-              console.log('[Supabase PKCE Exchange Success] Session established');
-            }
-          }
-        } catch (err) {
-          console.error('[Supabase PKCE Exchange Exception]', err);
-        } finally {
-          // Redireciona de volta limpando o callback e preservando uma experiência fluida
-          const cleanUrl = window.location.origin + window.location.pathname.replace('/auth/callback', '');
-          window.history.replaceState({}, '', cleanUrl);
-        }
-      }
-    };
-
-    handleCallback();
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        const userObj = session.user;
-        const first_name = userObj.user_metadata?.first_name || '';
-        const last_name = userObj.user_metadata?.last_name || '';
-        const full_name = userObj.user_metadata?.full_name || 
-                          (first_name || last_name ? `${first_name} ${last_name}`.trim() : '') ||
-                          userObj.user_metadata?.name ||
-                          userObj.email?.split('@')[0] ||
-                          'Usuário Poupagaio';
-        const profile: Profile = {
-          id: userObj.id,
-          email: userObj.email || '',
-          full_name,
-          first_name,
-          last_name,
-          phone: userObj.user_metadata?.phone || userObj.phone || '',
-          avatar_url: userObj.user_metadata?.avatar_url,
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        const userProfile: Profile = {
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          full_name:
+            firebaseUser.displayName ||
+            firebaseUser.email?.split('@')[0] ||
+            'Usuário Poupagaio',
+          avatar_url: firebaseUser.photoURL || undefined,
           due_alert_days: 3,
-          created_at: userObj.created_at || new Date().toISOString(),
+          created_at: new Date().toISOString(),
         };
-        setCurrentUser(profile);
-        saveToFirestore('users', profile.id, profile);
+        setCurrentUser(userProfile);
+        saveToFirestore('users', userProfile.id, userProfile);
+
+        // Inicializa dados no Firebase Firestore se o espaço ainda estiver vazio
+        seedSpaceDataIfEmpty('space-couple-02', {
+          categories: DEFAULT_CATEGORIES,
+          transactions: INITIAL_TRANSACTIONS,
+          goals: INITIAL_GOALS,
+          investments: INITIAL_INVESTMENTS,
+          wishlist: INITIAL_WISHLIST,
+          plans: INITIAL_MONTHLY_PLANS,
+        });
       }
     });
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        const userObj = session.user;
-        const first_name = userObj.user_metadata?.first_name || '';
-        const last_name = userObj.user_metadata?.last_name || '';
-        const full_name = userObj.user_metadata?.full_name || 
-                          (first_name || last_name ? `${first_name} ${last_name}`.trim() : '') ||
-                          userObj.user_metadata?.name ||
-                          userObj.email?.split('@')[0] ||
-                          'Usuário Poupagaio';
-        const profile: Profile = {
-          id: userObj.id,
-          email: userObj.email || '',
-          full_name,
-          first_name,
-          last_name,
-          phone: userObj.user_metadata?.phone || userObj.phone || '',
-          avatar_url: userObj.user_metadata?.avatar_url,
-          due_alert_days: 3,
-          created_at: userObj.created_at || new Date().toISOString(),
-        };
-        setCurrentUser(profile);
-        saveToFirestore('users', profile.id, profile);
-      }
-    });
-
-    return () => {
-      authListener?.subscription?.unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
-  // Autenticação com Google via Supabase OAuth
+  // Funções de Autenticação Firebase
   const loginWithGoogle = async (): Promise<boolean> => {
     try {
-      if (supabase) {
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo: window.location.origin,
-          },
-        });
-        if (error) {
-          console.warn('[Supabase Google Auth Notice]', error.message);
-          return false;
-        }
+      const fbUser = await firebaseLoginGoogle();
+      if (fbUser) {
+        const profile: Profile = {
+          id: fbUser.uid,
+          email: fbUser.email || '',
+          full_name:
+            fbUser.displayName ||
+            fbUser.email?.split('@')[0] ||
+            'Usuário Poupagaio',
+          avatar_url: fbUser.photoURL || undefined,
+          due_alert_days: 3,
+          created_at: new Date().toISOString(),
+        };
+        setCurrentUser(profile);
+        saveToFirestore('users', profile.id, profile);
         return true;
       }
       return false;
     } catch (err) {
-      console.warn('[Supabase Google Auth Exception]', err);
+      console.error('Erro no login com Google:', err);
       return false;
     }
   };
 
-  const login = async (email: string, pass: string, authenticatedUser?: any): Promise<boolean> => {
-    const normalizedEmail = email.trim().toLowerCase();
-
-    // 1. Se um usuário do Supabase Auth / Local já foi autenticado e passado
-    if (authenticatedUser?.id) {
-      const profile: Profile = {
-        id: authenticatedUser.id,
-        email: authenticatedUser.email || normalizedEmail,
-        full_name:
-          authenticatedUser.user_metadata?.full_name ||
-          authenticatedUser.full_name ||
-          normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
-        phone: authenticatedUser.user_metadata?.phone || authenticatedUser.phone || '',
-        avatar_url: authenticatedUser.user_metadata?.avatar_url || authenticatedUser.avatar_url,
-        due_alert_days: 3,
-        created_at: authenticatedUser.created_at || new Date().toISOString(),
-      };
-      setCurrentUser(profile);
-      saveToFirestore('users', profile.id, profile);
-      return true;
-    }
-
-    if (pass && pass.length < 8) return false;
-
-    // 2. Se o Supabase Auth está ativo, efetua a autenticação direta
-    if (supabase) {
-      const res = await loginUserWithSupabase(normalizedEmail, pass);
-      if (res.success && res.user) {
+  const login = async (email: string, pass: string): Promise<boolean> => {
+    if (pass.length < 8) return false;
+    try {
+      const fbUser = await loginWithEmail(email, pass);
+      if (fbUser) {
         const profile: Profile = {
-          id: res.user.id,
-          email: res.user.email || normalizedEmail,
+          id: fbUser.uid,
+          email: fbUser.email || email,
           full_name:
-            res.user.user_metadata?.full_name ||
-            res.user.full_name ||
-            normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
-          phone: res.user.user_metadata?.phone || res.user.phone || '',
-          avatar_url: res.user.user_metadata?.avatar_url,
+            fbUser.displayName ||
+            email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1),
           due_alert_days: 3,
-          created_at: res.user.created_at || new Date().toISOString(),
+          created_at: new Date().toISOString(),
         };
         setCurrentUser(profile);
         saveToFirestore('users', profile.id, profile);
         return true;
       }
+    } catch (fbErr) {
+      console.warn('Login Firebase fallback para conta demonstrativa:', fbErr);
     }
 
-    // 3. Fallback no armazenamento de usuários simulados locais
-    const rawSim = localStorage.getItem('poupagaio_simulated_users');
-    if (rawSim) {
-      try {
-        const simUsers = JSON.parse(rawSim);
-        const simUser = simUsers[normalizedEmail];
-        if (simUser) {
-          const profile: Profile = {
-            id: simUser.id,
-            email: simUser.email,
-            full_name: simUser.full_name || normalizedEmail.split('@')[0],
-            due_alert_days: 3,
-            created_at: simUser.created_at || new Date().toISOString(),
-          };
-          setCurrentUser(profile);
-          saveToFirestore('users', profile.id, profile);
-          return true;
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    // 4. Fallback de demonstração para contas de teste Mateus e Luana
-    if (normalizedEmail === 'mateus@email.com') {
-      setCurrentUser(INITIAL_USER);
-      saveToFirestore('users', INITIAL_USER.id, INITIAL_USER);
-      return true;
-    }
-    if (normalizedEmail === 'luana@email.com') {
+    // Fallback gracioso para contas demonstrativas rápidas
+    if (email.toLowerCase().includes('luana')) {
       setCurrentUser(PARTNER_USER);
       saveToFirestore('users', PARTNER_USER.id, PARTNER_USER);
-      return true;
+    } else {
+      const demoUser: Profile = {
+        ...INITIAL_USER,
+        email,
+        full_name: email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1),
+      };
+      setCurrentUser(demoUser);
+      saveToFirestore('users', demoUser.id, demoUser);
     }
-
-    // 5. Perfil de fallback com ID determinístico
-    const fallbackId = 'user-' + normalizedEmail.replace(/[^a-z0-9]/g, '-');
-    const demoUser: Profile = {
-      id: fallbackId,
-      email: normalizedEmail,
-      full_name: normalizedEmail.split('@')[0].charAt(0).toUpperCase() + normalizedEmail.split('@')[0].slice(1),
-      due_alert_days: 3,
-      created_at: new Date().toISOString(),
-    };
-    setCurrentUser(demoUser);
-    saveToFirestore('users', demoUser.id, demoUser);
     return true;
   };
 
-  const signup = async (
-    name: string,
-    email: string,
-    pass: string,
-    phone?: string,
-    authenticatedUser?: any
-  ): Promise<boolean> => {
-    if (!name.trim() || !email.trim()) return false;
-    if (!authenticatedUser && pass && pass.length < 8) return false;
-    const normalizedEmail = email.trim().toLowerCase();
-
-    let newUserId = authenticatedUser?.id;
-
-    if (!newUserId && supabase) {
-      const res = await registerUserWithSupabase({ name, email: normalizedEmail, phone, password: pass });
-      if (res.user?.id) {
-        newUserId = res.user.id;
+  const signup = async (name: string, email: string, pass: string, phone?: string): Promise<boolean> => {
+    if (!name.trim() || !email.trim() || pass.length < 8) return false;
+    let newUserId = 'user-' + Date.now();
+    try {
+      const fbUser = await signupWithEmail(email.trim(), pass);
+      if (fbUser) {
+        newUserId = fbUser.uid;
       }
-    }
-
-    if (!newUserId) {
-      const rawSim = localStorage.getItem('poupagaio_simulated_users');
-      if (rawSim) {
-        try {
-          const simUsers = JSON.parse(rawSim);
-          if (simUsers[normalizedEmail]?.id) {
-            newUserId = simUsers[normalizedEmail].id;
-          }
-        } catch (e) {}
-      }
-    }
-
-    if (!newUserId) {
-      newUserId = 'user-' + Date.now();
+    } catch (fbErr) {
+      console.warn('Cadastro Firebase Auth:', fbErr);
     }
 
     const newUser: Profile = {
       id: newUserId,
-      email: normalizedEmail,
+      email: email.trim().toLowerCase(),
       full_name: name.trim(),
       phone: phone?.trim(),
       due_alert_days: 3,
@@ -898,7 +570,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Conforme Seção 5: Todo usuário recebe automaticamente "Minhas finanças"
     const personalSpace: FinancialSpace = {
-      id: 'space-' + newUserId,
+      id: 'space-' + Date.now(),
       name: 'Minhas finanças',
       is_shared: false,
       owner_id: newUserId,
@@ -907,7 +579,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     const adminMember: SpaceMember = {
-      id: 'mem-' + newUserId,
+      id: 'mem-' + Date.now(),
       space_id: personalSpace.id,
       user_id: newUserId,
       role: 'admin',
@@ -915,6 +587,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       created_at: new Date().toISOString(),
     };
 
+    // Cria categorias padrões no novo espaço
     const userCategories: Category[] = DEFAULT_CATEGORIES.map((c) => ({
       ...c,
       id: `cat-${personalSpace.id}-${c.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
@@ -940,49 +613,22 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
-  const logout = async (): Promise<void> => {
-    try {
-      if (supabase) {
-        await supabase.auth.signOut();
-      }
-    } catch (err) {
-      console.error('Erro no logout:', err);
-    } finally {
-      setCurrentUser(null);
-      localStorage.removeItem(STORAGE_KEYS.USER);
-    }
+  const logout = () => {
+    logoutUser().catch(() => {});
+    setCurrentUser(null);
+    localStorage.removeItem(STORAGE_KEYS.USER);
   };
 
-  const updateProfile = (data: Partial<Profile> & { first_name?: string; last_name?: string }) => {
+  const updateProfile = (data: Partial<Profile>) => {
     if (!currentUser) return;
     const updated = { ...currentUser, ...data };
-    if (data.first_name !== undefined || data.last_name !== undefined) {
-      const fName = data.first_name !== undefined ? data.first_name : (currentUser.first_name || '');
-      const lName = data.last_name !== undefined ? data.last_name : (currentUser.last_name || '');
-      updated.full_name = `${fName} ${lName}`.trim() || updated.full_name;
-    }
     setCurrentUser(updated);
     saveToFirestore('users', updated.id, updated);
-    
-    // Atualiza metadados do usuário no Supabase Auth (se ativado)
-    updateUserProfileMetadataWithSupabase({
-      full_name: updated.full_name,
-      first_name: updated.first_name,
-      last_name: updated.last_name,
-      phone: updated.phone,
-    }).catch(() => {});
-
     logAudit('Atualização de perfil', 'profiles', currentUser.id, data);
   };
 
   const changePassword = async (newPass: string): Promise<boolean> => {
-    if (!newPass || newPass.length < 8) return false;
-    
-    const res = await updateUserPasswordWithSupabase(newPass);
-    if (!res.success) {
-      return false;
-    }
-
+    if (newPass.length < 8) return false;
     logAudit('Alteração de senha', 'profiles', currentUser?.id);
     return true;
   };
@@ -1814,268 +1460,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNotifications([]);
   };
 
-  // Funções do Mercado / Lista de Compras
-  const createShoppingList = async (name: string, budget?: number): Promise<ShoppingList> => {
-    if (!currentSpace || !currentUser) throw new Error('Usuário não autenticado');
-    const newList: ShoppingList = {
-      id: 'shop-list-' + Date.now() + Math.random().toString(36).substring(2, 5),
-      space_id: currentSpace.id,
-      user_id: currentUser.id,
-      name: name.trim(),
-      budget: budget && budget > 0 ? budget : undefined,
-      status: 'draft',
-      total: 0,
-      created_at: new Date().toISOString(),
-    };
-    setShoppingLists((prev) => [newList, ...prev]);
-    saveToFirestore('shopping_lists', newList.id, newList);
-    showToast('Lista de compras criada!', 'success');
-    return newList;
-  };
-
-  const updateShoppingList = async (id: string, updates: Partial<ShoppingList>): Promise<void> => {
-    setShoppingLists((prev) =>
-      prev.map((l) => {
-        if (l.id === id) {
-          const updated = { ...l, ...updates };
-          saveToFirestore('shopping_lists', id, updated);
-          return updated;
-        }
-        return l;
-      })
-    );
-  };
-
-  const deleteShoppingList = async (id: string): Promise<void> => {
-    setShoppingLists((prev) => prev.filter((l) => l.id !== id));
-    setShoppingItems((prev) => prev.filter((i) => i.shopping_list_id !== id));
-    deleteFromFirestore('shopping_lists', id);
-    showToast('Lista excluída.', 'info');
-  };
-
-  const addShoppingItem = async (listId: string, name: string, quantity?: number): Promise<ShoppingItem> => {
-    if (!currentUser) throw new Error('Usuário não autenticado');
-    const normName = name.trim().toLowerCase();
-    const lastPrice = shoppingPriceReferences[normName] || undefined;
-    const qty = quantity && quantity > 0 ? quantity : 1;
-
-    const newItem: ShoppingItem = {
-      id: 'shop-item-' + Date.now() + Math.random().toString(36).substring(2, 5),
-      shopping_list_id: listId,
-      user_id: currentUser.id,
-      name: name.trim(),
-      quantity: qty,
-      subtotal: 0,
-      status: 'pending',
-      last_price_reference: lastPrice,
-      created_at: new Date().toISOString(),
-    };
-
-    setShoppingItems((prev) => [...prev, newItem]);
-    saveToFirestore('shopping_items', newItem.id, newItem);
-    return newItem;
-  };
-
-  const updateShoppingItem = async (id: string, updates: Partial<ShoppingItem>): Promise<void> => {
-    setShoppingItems((prev) => {
-      const nextItems = prev.map((item) => {
-        if (item.id === id) {
-          const updated = { ...item, ...updates };
-          if (updated.status === 'in_cart' && updated.unit_price !== undefined) {
-            updated.subtotal = updated.quantity * updated.unit_price;
-          } else if (updated.status !== 'in_cart') {
-            updated.subtotal = 0;
-          }
-          updated.updated_at = new Date().toISOString();
-          saveToFirestore('shopping_items', id, updated);
-          return updated;
-        }
-        return item;
-      });
-
-      const targetItem = nextItems.find((i) => i.id === id);
-      if (targetItem) {
-        const listItems = nextItems.filter((i) => i.shopping_list_id === targetItem.shopping_list_id);
-        const newTotal = listItems
-          .filter((i) => i.status === 'in_cart')
-          .reduce((sum, i) => sum + (i.subtotal || 0), 0);
-
-        setShoppingLists((lists) =>
-          lists.map((l) => (l.id === targetItem.shopping_list_id ? { ...l, total: newTotal } : l))
-        );
-      }
-
-      return nextItems;
-    });
-  };
-
-  const removeShoppingItem = async (id: string): Promise<void> => {
-    let targetListId: string | undefined;
-    setShoppingItems((prev) => {
-      const item = prev.find((i) => i.id === id);
-      if (item) targetListId = item.shopping_list_id;
-      return prev.filter((i) => i.id !== id);
-    });
-    deleteFromFirestore('shopping_items', id);
-
-    if (targetListId) {
-      setTimeout(() => {
-        setShoppingItems((latest) => {
-          const listItems = latest.filter((i) => i.shopping_list_id === targetListId);
-          const newTotal = listItems
-            .filter((i) => i.status === 'in_cart')
-            .reduce((sum, i) => sum + (i.subtotal || 0), 0);
-          setShoppingLists((lists) =>
-            lists.map((l) => (l.id === targetListId ? { ...l, total: newTotal } : l))
-          );
-          return latest;
-        });
-      }, 50);
-    }
-  };
-
-  const startShopping = async (listId: string): Promise<void> => {
-    const startedAt = new Date().toISOString();
-    setShoppingLists((prev) =>
-      prev.map((l) => (l.id === listId ? { ...l, status: 'shopping', started_at: startedAt } : l))
-    );
-    showToast('Modo Compra iniciado! Bom mercado 🛒', 'success');
-  };
-
-  const finishShopping = async (
-    listId: string
-  ): Promise<{ list: ShoppingList; total: number; boughtCount: number; skippedCount: number }> => {
-    const listItems = shoppingItems.filter((i) => i.shopping_list_id === listId);
-    const boughtItems = listItems.filter((i) => i.status === 'in_cart');
-    const skippedItems = listItems.filter((i) => i.status === 'skipped');
-    const total = boughtItems.reduce((sum, i) => sum + (i.subtotal || 0), 0);
-
-    const completedAt = new Date().toISOString();
-
-    let updatedList: ShoppingList | undefined;
-    setShoppingLists((prev) =>
-      prev.map((l) => {
-        if (l.id === listId) {
-          updatedList = { ...l, status: 'completed', total, completed_at: completedAt };
-          saveToFirestore('shopping_lists', listId, updatedList);
-          return updatedList;
-        }
-        return l;
-      })
-    );
-
-    const newRefs = { ...shoppingPriceReferences };
-    boughtItems.forEach((item) => {
-      if (item.unit_price && item.unit_price > 0) {
-        const norm = item.name.trim().toLowerCase();
-        newRefs[norm] = item.unit_price;
-      }
-    });
-    setShoppingPriceReferences(newRefs);
-
-    return {
-      list: updatedList || {
-        id: listId,
-        space_id: currentSpace?.id || '',
-        user_id: currentUser?.id || '',
-        name: 'Compras do mês',
-        status: 'completed',
-        total,
-        created_at: completedAt,
-      },
-      total,
-      boughtCount: boughtItems.length,
-      skippedCount: skippedItems.length,
-    };
-  };
-
-  const registerShoppingTransaction = async (listId: string): Promise<Transaction | null> => {
-    const list = shoppingLists.find((l) => l.id === listId);
-    if (!list) return null;
-    if (list.financial_transaction_id) {
-      showToast('Esta compra já foi registrada nas finanças!', 'info');
-      return transactions.find((t) => t.id === list.financial_transaction_id) || null;
-    }
-
-    const catMercado = categories.find(
-      (c) => c.name.toLowerCase().includes('mercado') || c.name.toLowerCase().includes('supermercado')
-    ) || categories.find((c) => c.id === 'cat-exp-compras') || categories[0];
-
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const refMonthStr = list.completed_at ? list.completed_at.slice(0, 7) : selectedMonth;
-
-    const txData: Omit<Transaction, 'id' | 'created_at' | 'created_by' | 'status'> = {
-      space_id: list.space_id,
-      description: list.name || 'Compras no Mercado',
-      amount: list.total,
-      type: 'expense_variable',
-      category_id: catMercado?.id,
-      due_date: todayStr,
-      payment_date: todayStr,
-      reference_month: refMonthStr,
-      is_recurring: false,
-    };
-
-    const newTx = await addTransaction(txData);
-
-    setShoppingLists((prev) =>
-      prev.map((l) => {
-        if (l.id === listId) {
-          const updated = { ...l, financial_transaction_id: newTx.id };
-          saveToFirestore('shopping_lists', listId, updated);
-          return updated;
-        }
-        return l;
-      })
-    );
-
-    showToast('✓ Registrado nas suas finanças com sucesso!', 'success');
-    return newTx;
-  };
-
-  const duplicateShoppingList = async (listId: string, newName?: string): Promise<ShoppingList> => {
-    if (!currentSpace || !currentUser) throw new Error('Usuário não autenticado');
-    const originalList = shoppingLists.find((l) => l.id === listId);
-    if (!originalList) throw new Error('Lista não encontrada');
-
-    const originalItems = shoppingItems.filter((i) => i.shopping_list_id === listId);
-
-    const newList: ShoppingList = {
-      id: 'shop-list-' + Date.now() + Math.random().toString(36).substring(2, 5),
-      space_id: currentSpace.id,
-      user_id: currentUser.id,
-      name: newName ? newName.trim() : originalList.name,
-      budget: originalList.budget,
-      status: 'draft',
-      total: 0,
-      created_at: new Date().toISOString(),
-    };
-
-    const newItems: ShoppingItem[] = originalItems.map((item, idx) => {
-      const norm = item.name.trim().toLowerCase();
-      const lastPrice = shoppingPriceReferences[norm] || item.unit_price || item.last_price_reference;
-      return {
-        id: 'shop-item-' + Date.now() + '-' + idx,
-        shopping_list_id: newList.id,
-        user_id: currentUser.id,
-        name: item.name,
-        quantity: item.quantity || 1,
-        subtotal: 0,
-        status: 'pending',
-        last_price_reference: lastPrice,
-        created_at: new Date().toISOString(),
-      };
-    });
-
-    setShoppingLists((prev) => [newList, ...prev]);
-    setShoppingItems((prev) => [...prev, ...newItems]);
-    saveToFirestore('shopping_lists', newList.id, newList);
-    newItems.forEach((i) => saveToFirestore('shopping_items', i.id, i));
-
-    showToast('Lista copiada! Pronta para uso 🛒', 'success');
-    return newList;
-  };
-
   // Reset para dados mock iniciais
   const resetToMockData = () => {
     setCurrentUser(INITIAL_USER);
@@ -2096,9 +1480,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setMonthlyClosings([]);
     setNotifications(INITIAL_NOTIFICATIONS);
     setAuditLogs(INITIAL_AUDIT_LOGS);
-    setShoppingLists(INITIAL_SHOPPING_LISTS);
-    setShoppingItems(INITIAL_SHOPPING_ITEMS);
-    setShoppingPriceReferences({});
   };
 
   return (
@@ -2178,20 +1559,6 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
         notifications: notifications.filter((n) => n.user_id === currentUser?.id),
         markNotificationAsRead,
         clearAllNotifications,
-
-        shoppingLists: shoppingLists.filter((l) => l.space_id === currentSpace?.id),
-        shoppingItems: shoppingItems.filter((i) => i.user_id === currentUser?.id),
-        shoppingPriceReferences,
-        createShoppingList,
-        updateShoppingList,
-        deleteShoppingList,
-        addShoppingItem,
-        updateShoppingItem,
-        removeShoppingItem,
-        startShopping,
-        finishShopping,
-        registerShoppingTransaction,
-        duplicateShoppingList,
 
         auditLogs: auditLogs.filter((a) => a.space_id === currentSpace?.id),
 

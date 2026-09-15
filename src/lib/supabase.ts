@@ -1,8 +1,8 @@
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
-// Variáveis de ambiente exclusivamente Vite
-export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Variáveis de ambiente Vite
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
@@ -28,15 +28,6 @@ const STORAGE_KEYS = {
   SIMULATED_USERS: 'poupagaio_simulated_users',
 };
 
-export function isSimulationActive(): boolean {
-  if (!isSupabaseConfigured) return true;
-  return localStorage.getItem('poupagaio_use_simulation') === 'true';
-}
-
-export function setSimulationActive(active: boolean): void {
-  localStorage.setItem('poupagaio_use_simulation', active ? 'true' : 'false');
-}
-
 export interface AuthAttemptRecord {
   count: number;
   firstAttemptTimestamp: number;
@@ -56,7 +47,7 @@ export function isValidEmailFormat(email: string): boolean {
 
 /**
  * Verificação e registro de tentativas de login (Seção 1.5)
- * Bloqueia após 10 tentativas na janela de 10 minutos (600.000 ms)
+ * Bloqueia após 5 tentativas na janela de 10 minutos (600.000 ms)
  */
 export function checkLoginAttempts(email: string): { isBlocked: boolean; remainingMinutes?: number } {
   try {
@@ -83,7 +74,7 @@ export function checkLoginAttempts(email: string): { isBlocked: boolean; remaini
       return { isBlocked: false };
     }
 
-    if (record.count >= 10) {
+    if (record.count >= 5) {
       const blockedUntil = now + TEN_MINUTES_MS;
       record.blockedUntil = blockedUntil;
       attemptsMap[key] = record;
@@ -110,7 +101,7 @@ export function recordFailedLoginAttempt(email: string): { isBlockedNow: boolean
       record = { count: 1, firstAttemptTimestamp: now };
     } else {
       record.count += 1;
-      if (record.count >= 10) {
+      if (record.count >= 5) {
         record.blockedUntil = now + TEN_MINUTES_MS;
       }
     }
@@ -118,7 +109,7 @@ export function recordFailedLoginAttempt(email: string): { isBlockedNow: boolean
     attemptsMap[key] = record;
     localStorage.setItem(STORAGE_KEYS.AUTH_ATTEMPTS, JSON.stringify(attemptsMap));
 
-    return { isBlockedNow: record.count >= 10 };
+    return { isBlockedNow: record.count >= 5 };
   } catch (e) {
     return { isBlockedNow: false };
   }
@@ -151,9 +142,8 @@ export async function registerUserWithSupabase(params: {
   user?: any;
 }> {
   const { name, email, phone, password } = params;
-  const normalizedEmail = email.trim().toLowerCase();
 
-  if (!isValidEmailFormat(normalizedEmail)) {
+  if (!isValidEmailFormat(email)) {
     return { success: false, needsEmailConfirmation: false, error: 'Formato de e-mail inválido.' };
   }
 
@@ -164,67 +154,54 @@ export async function registerUserWithSupabase(params: {
   // Se Supabase estiver conectado
   if (supabase) {
     try {
-      const isLocalhostOrPreview =
-        typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' ||
-         window.location.hostname === '127.0.0.1' ||
-         window.location.hostname.includes('run.app'));
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://poupagaiofinancas.vercel.app';
-      const redirectUrl = isLocalhostOrPreview ? `${origin}/auth/callback` : 'https://poupagaiofinancas.vercel.app/auth/callback';
-
       const { data, error } = await supabase.auth.signUp({
-        email: normalizedEmail,
+        email: email.trim(),
         password,
         options: {
-          emailRedirectTo: redirectUrl,
           data: {
             full_name: name.trim(),
-            name: name.trim(),
             phone: phone ? phone.trim() : undefined,
           },
         },
       });
 
       if (error) {
-        console.error('[Supabase Auth SignUp Error]', {
-          message: error.message,
-          status: error.status,
-          code: (error as any).code,
-        });
         return { success: false, needsEmailConfirmation: false, error: error.message };
       }
 
+      const needsConfirmation = !data.session && Boolean(data.user);
       return {
         success: true,
-        needsEmailConfirmation: Boolean(data.user && !data.session),
+        needsEmailConfirmation: needsConfirmation,
         user: data.user,
       };
     } catch (err: any) {
-      console.error('[Supabase Auth SignUp Exception]', err);
       return { success: false, needsEmailConfirmation: false, error: err.message || 'Erro ao comunicar com Supabase.' };
     }
   }
 
-  // Modo Local/Sandbox Simulado quando Supabase URL não configurada
-  const createdUser = {
+  // Modo Local/Sandbox Simulado com conformidade rigorosa
+  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
+  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
+  const key = email.trim().toLowerCase();
+
+  simulatedUsers[key] = {
     id: 'user-' + Date.now(),
-    email: normalizedEmail,
+    email: key,
     full_name: name.trim(),
     phone: phone ? phone.trim() : undefined,
-    password,
-    email_confirmed: true,
+    password, // Salvo apenas localmente para teste de login
+    email_confirmed: false,
     created_at: new Date().toISOString(),
   };
 
-  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
-  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
-  simulatedUsers[normalizedEmail] = createdUser;
   localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
+  localStorage.setItem(STORAGE_KEYS.PENDING_CONFIRMATION, key);
 
   return {
     success: true,
-    needsEmailConfirmation: false,
-    user: createdUser,
+    needsEmailConfirmation: true,
+    user: simulatedUsers[key],
   };
 }
 
@@ -254,92 +231,6 @@ export async function resendConfirmationEmail(email: string): Promise<{ success:
 }
 
 /**
- * Solicitação segura de recuperação de senha via Supabase Auth (Seções 9, 10, 11, 14)
- */
-export async function sendPasswordResetEmail(email: string): Promise<{ success: boolean; message: string; error?: string }> {
-  if (!isValidEmailFormat(email)) {
-    return {
-      success: false,
-      message: 'Por favor, informe um endereço de e-mail válido.',
-      error: 'Formato de e-mail inválido.',
-    };
-  }
-
-  const genericSuccessMessage =
-    'Se existir uma conta associada a esse e-mail, enviaremos as instruções para redefinir a senha.';
-
-  if (supabase) {
-    try {
-      const officialRedirectUrl = 'https://poupagaiofinancas.vercel.app/redefinir-senha';
-      const isLocalhost =
-        typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      const redirectUrl = isLocalhost ? `${window.location.origin}/redefinir-senha` : officialRedirectUrl;
-
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: redirectUrl,
-      });
-      if (error) {
-        console.error('[Supabase Reset Password Error]', error);
-      }
-      return { success: true, message: genericSuccessMessage };
-    } catch (err: any) {
-      console.error('[Supabase Reset Password Exception]', err);
-      return { success: true, message: genericSuccessMessage };
-    }
-  }
-
-  // Modo local simulado
-  return { success: true, message: genericSuccessMessage };
-}
-
-/**
- * Redefinição de senha via token do Supabase Auth (Seções 12, 13)
- */
-export async function updateUserPassword(
-  newPassword: string,
-  userEmail?: string
-): Promise<{ success: boolean; message?: string; error?: string }> {
-  if (newPassword.length < 8) {
-    return {
-      success: false,
-      error: 'A nova senha deve possuir no mínimo 8 caracteres.',
-    };
-  }
-
-  if (supabase) {
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) {
-        return { success: false, error: error.message };
-      }
-      return { success: true, message: 'Senha alterada com sucesso.' };
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Erro ao redefinir a senha.' };
-    }
-  }
-
-  // Modo local simulado
-  if (userEmail) {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
-      if (raw) {
-        const users = JSON.parse(raw);
-        const key = userEmail.trim().toLowerCase();
-        if (users[key]) {
-          users[key].password = newPassword;
-          localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(users));
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  return { success: true, message: 'Senha alterada com sucesso.' };
-}
-
-/**
  * Confirmação manual de e-mail em ambiente simulado
  */
 export function simulateConfirmEmail(email: string): boolean {
@@ -360,9 +251,8 @@ export function simulateConfirmEmail(email: string): boolean {
   }
 }
 
-
 /**
- * Login com Supabase Auth e Tratamento Rigoroso de Erros
+ * Login com Supabase ou Fallback Seguro
  */
 export async function loginUserWithSupabase(
   email: string,
@@ -371,12 +261,9 @@ export async function loginUserWithSupabase(
   success: boolean;
   needsEmailConfirmation?: boolean;
   error?: string;
-  rawError?: { message?: string; status?: number; code?: string };
   user?: any;
-  session?: any;
 }> {
-  const normalizedEmail = email.trim().toLowerCase();
-  const check = checkLoginAttempts(normalizedEmail);
+  const check = checkLoginAttempts(email);
   if (check.isBlocked) {
     return {
       success: false,
@@ -387,374 +274,72 @@ export async function loginUserWithSupabase(
   if (supabase) {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
+        email: email.trim(),
         password: pass,
       });
 
-      console.error("POUPAGAIO AUTH DEBUG", {
-        message: error?.message,
-        status: error?.status,
-        code: (error as any)?.code,
-        userId: data?.user?.id,
-        hasSession: !!data?.session
-      });
-
       if (error) {
-        recordFailedLoginAttempt(normalizedEmail);
-
-        const errMsgLower = error.message?.toLowerCase() || '';
-        const errCode = (error as any).code;
-
-        // E-mail não confirmado
-        if (errMsgLower.includes('email not confirmed') || errCode === 'email_not_confirmed') {
-          return {
-            success: false,
-            needsEmailConfirmation: true,
-            error:
-              'E-mail não confirmado no Supabase. Verifique sua caixa de entrada para confirmar a conta.',
-            rawError: { message: error.message, status: error.status, code: errCode },
-          };
-        }
-
-        // Rate Limit pelo Supabase
-        if (error.status === 429 || errMsgLower.includes('too many requests')) {
-          return {
-            success: false,
-            error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.',
-            rawError: { message: error.message, status: error.status, code: errCode },
-          };
-        }
-
-        // Problema de Conexão / Rede
-        if (
-          errMsgLower.includes('failed to fetch') ||
-          errMsgLower.includes('networkerror') ||
-          error.status === 0 ||
-          (error.status && error.status >= 500)
-        ) {
-          return {
-            success: false,
-            error: `Falha de conexão com o Supabase (${error.message || 'NetworkError'}). Tente novamente.`,
-            rawError: { message: error.message, status: error.status, code: errCode },
-          };
-        }
-
-        // Retorna a mensagem de erro original do Supabase
+        recordFailedLoginAttempt(email);
         return {
           success: false,
-          error: error.message || 'E-mail ou senha incorretos.',
-          rawError: { message: error.message, status: error.status, code: errCode },
+          error: 'E-mail ou senha incorretos.',
         };
       }
 
-      resetLoginAttempts(normalizedEmail);
-      return { success: true, user: data.user, session: data.session };
-    } catch (err: any) {
-      console.error('[Supabase Auth Login Exception]', err);
-      recordFailedLoginAttempt(normalizedEmail);
+      resetLoginAttempts(email);
+      return { success: true, user: data.user };
+    } catch (err) {
+      recordFailedLoginAttempt(email);
       return {
         success: false,
-        error: err.message || 'Não foi possível conectar. Tente novamente.',
-        rawError: { message: err.message, status: 0, code: 'EXCEPTION' },
+        error: 'E-mail ou senha incorretos.',
       };
     }
   }
 
-  // Verificação no banco de dados local simulado (somente quando Supabase URL não estiver configurada)
+  // Verificação no banco de dados local simulado
   const raw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
   const users: Record<string, any> = raw ? JSON.parse(raw) : {};
-  const registeredUser = users[normalizedEmail];
+  const key = email.trim().toLowerCase();
+  const registeredUser = users[key];
 
+  // Se o usuário foi cadastrado localmente
   if (registeredUser) {
     if (registeredUser.password !== pass) {
-      recordFailedLoginAttempt(normalizedEmail);
+      recordFailedLoginAttempt(email);
       return { success: false, error: 'E-mail ou senha incorretos.' };
     }
 
-    resetLoginAttempts(normalizedEmail);
+    if (!registeredUser.email_confirmed) {
+      return {
+        success: false,
+        needsEmailConfirmation: true,
+        error: 'Por favor, confirme seu e-mail antes de acessar sua conta.',
+      };
+    }
+
+    resetLoginAttempts(email);
     return { success: true, user: registeredUser };
   }
 
   // Contas padrão de demonstração do Poupagaio (mateus@email.com, luana@email.com)
   if (
-    (normalizedEmail === 'mateus@email.com' || normalizedEmail === 'luana@email.com') &&
+    (key === 'mateus@email.com' || key === 'luana@email.com') &&
     pass.length >= 8
   ) {
-    resetLoginAttempts(normalizedEmail);
+    resetLoginAttempts(email);
     return {
       success: true,
       user: {
-        id: normalizedEmail === 'luana@email.com' ? 'user-luana-02' : 'user-mateus-01',
-        email: normalizedEmail,
-        full_name: normalizedEmail === 'luana@email.com' ? 'Luana Souza' : 'Mateus Araujo',
+        id: key === 'luana@email.com' ? 'user-luana-02' : 'user-mateus-01',
+        email: key,
+        full_name: key === 'luana@email.com' ? 'Luana Souza' : 'Mateus Araujo',
         email_confirmed: true,
       },
     };
   }
 
-  recordFailedLoginAttempt(normalizedEmail);
+  // Credenciais não coincidem
+  recordFailedLoginAttempt(email);
   return { success: false, error: 'E-mail ou senha incorretos.' };
 }
-
-/**
- * Atualiza a senha do usuário autenticado no Supabase Auth
- */
-export async function updateUserPasswordWithSupabase(newPassword: string): Promise<{ success: boolean; error?: string }> {
-  if (!supabase) {
-    return { success: true };
-  }
-  try {
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) {
-      console.warn('[Supabase Update Password Warning]', error);
-      return { success: false, error: error.message };
-    }
-    return { success: true };
-  } catch (err: any) {
-    console.error('[Supabase Update Password Exception]', err);
-    return { success: false, error: 'Não foi possível alterar a senha. Tente novamente.' };
-  }
-}
-
-/**
- * Atualiza metadados do perfil do usuário no Supabase Auth
- */
-export async function updateUserProfileMetadataWithSupabase(metadata: { full_name?: string; phone?: string; first_name?: string; last_name?: string }): Promise<{ success: boolean; error?: string }> {
-  if (!supabase) {
-    return { success: true };
-  }
-  try {
-    const { error } = await supabase.auth.updateUser({ data: metadata });
-    if (error) {
-      console.warn('[Supabase Update Metadata Warning]', error);
-      return { success: false, error: error.message };
-    }
-    return { success: true };
-  } catch (err: any) {
-    console.error('[Supabase Update Metadata Exception]', err);
-    return { success: false, error: err.message };
-  }
-}
-
-/**
- * Normaliza o número de telefone para o formato +5561999999999 (Seção 9)
- */
-export function normalizePhoneNumber(phone: string): string {
-  if (!phone) return '';
-  // Remove todos os caracteres não numéricos
-  const numeric = phone.replace(/\D/g, '');
-  if (!numeric) return '';
-
-  // Se já tiver o código do país (+55 por exemplo, ou 55)
-  if (numeric.length === 13 && numeric.startsWith('55')) {
-    return `+${numeric}`;
-  }
-  if (numeric.length === 11) {
-    // DDD + 9 + 8 dígitos -> adiciona +55
-    return `+55${numeric}`;
-  }
-  if (numeric.length === 10) {
-    // DDD + 8 dígitos -> adiciona +55
-    return `+55${numeric}`;
-  }
-  
-  if (numeric.startsWith('55')) {
-    return `+${numeric}`;
-  }
-  return `+55${numeric}`;
-}
-
-/**
- * Realiza o cadastro sem senha (Passwordless OTP / Magic Link) via Supabase Auth (Seção 4)
- */
-export async function signUpPasswordless(params: {
-  name: string;
-  email: string;
-}): Promise<{
-  success: boolean;
-  error?: string;
-}> {
-  const { name, email } = params;
-  const normalizedEmail = email.trim().toLowerCase();
-
-  if (!name.trim()) {
-    return { success: false, error: 'O nome é obrigatório.' };
-  }
-  if (!isValidEmailFormat(normalizedEmail)) {
-    return { success: false, error: 'Formato de e-mail inválido.' };
-  }
-
-  if (supabase && !isSimulationActive()) {
-    try {
-      const isLocalhostOrPreview =
-        typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' ||
-         window.location.hostname === '127.0.0.1' ||
-         window.location.hostname.includes('run.app'));
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://poupagaiofinancas.vercel.app';
-      const redirectUrl = isLocalhostOrPreview ? `${origin}/auth/callback` : 'https://poupagaiofinancas.vercel.app/auth/callback';
-
-      const { error } = await supabase.auth.signInWithOtp({
-        email: normalizedEmail,
-        options: {
-          shouldCreateUser: true,
-          emailRedirectTo: redirectUrl,
-          data: {
-            full_name: name.trim(),
-            name: name.trim(),
-          },
-        },
-      });
-
-      if (error) {
-        console.error('[Supabase Auth SignUpPasswordless Error]', error);
-        return { success: false, error: error.message };
-      }
-
-      return { success: true };
-    } catch (err: any) {
-      console.error('[Supabase Auth SignUpPasswordless Exception]', err);
-      return { success: false, error: err.message || 'Erro ao comunicar com o Supabase.' };
-    }
-  }
-
-  // Simulação offline/local caso Supabase não esteja configurado
-  const simulatedUsersRaw = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
-  const simulatedUsers: Record<string, any> = simulatedUsersRaw ? JSON.parse(simulatedUsersRaw) : {};
-  simulatedUsers[normalizedEmail] = {
-    id: 'user-' + Date.now(),
-    email: normalizedEmail,
-    full_name: name.trim(),
-    email_confirmed: true,
-    created_at: new Date().toISOString(),
-  };
-  localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(simulatedUsers));
-
-  return { success: true };
-}
-
-/**
- * Realiza o login sem senha (Passwordless OTP / Código de 6 Dígitos) via Supabase Auth
- */
-export async function signInPasswordless(email: string): Promise<{
-  success: boolean;
-  error?: string;
-}> {
-  const normalizedEmail = email.trim().toLowerCase();
-
-  if (!isValidEmailFormat(normalizedEmail)) {
-    return { success: false, error: 'Formato de e-mail inválido.' };
-  }
-
-  if (supabase && !isSimulationActive()) {
-    try {
-      const isLocalhostOrPreview =
-        typeof window !== 'undefined' &&
-        (window.location.hostname === 'localhost' ||
-         window.location.hostname === '127.0.0.1' ||
-         window.location.hostname.includes('run.app'));
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://poupagaiofinancas.vercel.app';
-      const redirectUrl = isLocalhostOrPreview ? `${origin}/auth/callback` : 'https://poupagaiofinancas.vercel.app/auth/callback';
-
-      const { error } = await supabase.auth.signInWithOtp({
-        email: normalizedEmail,
-        options: {
-          shouldCreateUser: false, // Só faz login se já existir
-          emailRedirectTo: redirectUrl,
-        },
-      });
-
-      if (error) {
-        console.error('[Supabase Auth SignInPasswordless Error]', error);
-        const lowerMsg = error.message.toLowerCase();
-        if (lowerMsg.includes('signup') || lowerMsg.includes('not allowed')) {
-          return { success: false, error: 'Este e-mail não está cadastrado. Por favor, crie uma conta primeiro.' };
-        }
-        return { success: false, error: error.message };
-      }
-
-      return { success: true };
-    } catch (err: any) {
-      console.error('[Supabase Auth SignInPasswordless Exception]', err);
-      return { success: false, error: err.message || 'Erro ao enviar o código de acesso.' };
-    }
-  }
-
-  // Simulação offline/local caso Supabase não esteja configurado
-  return { success: true };
-}
-
-/**
- * Verifica o código OTP (token de 6 dígitos) recebido no e-mail
- */
-export async function verifyOtpCode(
-  email: string,
-  token: string,
-  isRegister: boolean
-): Promise<{
-  success: boolean;
-  error?: string;
-  user?: User | null;
-  session?: any;
-}> {
-  const normalizedEmail = email.trim().toLowerCase();
-  const tokenClean = token.trim();
-
-  if (supabase && !isSimulationActive()) {
-    try {
-      // Tenta primeiro com o tipo apropriado
-      const primaryType = isRegister ? 'signup' : 'email';
-      const secondaryType = isRegister ? 'email' : 'signup';
-
-      let { data, error } = await supabase.auth.verifyOtp({
-        email: normalizedEmail,
-        token: tokenClean,
-        type: primaryType as any,
-      });
-
-      if (error) {
-        console.warn(`[Supabase OTP Verification] Failed with type ${primaryType}, trying ${secondaryType}...`, error);
-        const fallbackRes = await supabase.auth.verifyOtp({
-          email: normalizedEmail,
-          token: tokenClean,
-          type: secondaryType as any,
-        });
-
-        if (fallbackRes.error) {
-          console.error('[Supabase OTP Verification Exception]', fallbackRes.error);
-          return { success: false, error: fallbackRes.error.message };
-        }
-
-        data = fallbackRes.data;
-      }
-
-      return { success: true, user: data.user, session: data.session };
-    } catch (err: any) {
-      console.error('[Supabase OTP Verification Exception]', err);
-      return { success: false, error: err.message || 'Erro ao verificar o código.' };
-    }
-  }
-
-  // Simulação offline/local
-  const rawSim = localStorage.getItem(STORAGE_KEYS.SIMULATED_USERS);
-  const users = rawSim ? JSON.parse(rawSim) : {};
-  let targetSimUser = users[normalizedEmail];
-
-  if (!targetSimUser) {
-    targetSimUser = {
-      id: isRegister ? 'user-' + Date.now() : 'user-mateus-01',
-      email: normalizedEmail,
-      full_name: normalizedEmail.split('@')[0],
-      email_confirmed: true,
-      created_at: new Date().toISOString(),
-    };
-    users[normalizedEmail] = targetSimUser;
-    localStorage.setItem(STORAGE_KEYS.SIMULATED_USERS, JSON.stringify(users));
-  }
-
-  return {
-    success: true,
-    user: targetSimUser,
-  };
-}
-

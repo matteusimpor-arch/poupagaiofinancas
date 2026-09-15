@@ -121,7 +121,7 @@ export const MonthClosingModal: React.FC<MonthClosingModalProps> = ({ isOpen, on
         <div className="flex items-center justify-between p-5 border-b border-[#DDE8E0] bg-[#F6FAF7]">
           <div className="flex items-center gap-2.5">
             <img
-              src="/logo-poupagaio-principal.png"
+              src="/logo-poupagaio.png"
               alt="Poupagaio"
               referrerPolicy="no-referrer"
               className="w-9 h-9 object-contain"

@@ -16,13 +16,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
-    // User Profiles & App Data Sync
+    // User Profiles
     match /users/{userId} {
-      allow read, write: if true;
-    }
-
-    match /user_app_data/{userId} {
-      allow read, write: if true;
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
     }
 
     // Financial Workspaces

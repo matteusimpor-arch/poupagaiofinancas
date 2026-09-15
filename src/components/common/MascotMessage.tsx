@@ -50,7 +50,7 @@ export const MascotMessage: React.FC<MascotMessageProps> = ({
     >
       <div className="relative shrink-0 flex items-center justify-center">
         <img
-          src="/logo-poupagaio-principal.png"
+          src="/logo-poupagaio.png"
           alt="Mascote Poupagaio"
           referrerPolicy="no-referrer"
           className="w-12 h-12 md:w-14 md:h-14 object-contain rounded-xl shadow-xs"

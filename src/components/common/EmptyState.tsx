@@ -23,7 +23,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     >
       <div className="relative mb-3 flex items-center justify-center">
         <img
-          src="/logo-poupagaio-principal.png"
+          src="/logo-poupagaio.png"
           alt="Papagaio Poupagaio"
           referrerPolicy="no-referrer"
           className="w-16 h-16 object-contain drop-shadow-xs"
