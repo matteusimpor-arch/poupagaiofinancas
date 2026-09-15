@@ -1,8 +1,8 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import React from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface Props {
-  children: ReactNode;
+  children: React.ReactNode;
   fallbackTitle?: string;
 }
 
@@ -11,7 +11,7 @@ interface State {
   error?: Error;
 }
 
-export class ErrorBoundary extends Component<Props, State> {
+export class ErrorBoundary extends React.Component<Props, State> {
   public state: State = {
     hasError: false,
   };
@@ -20,17 +20,17 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('[Poupagaio ErrorBoundary Caught]', error, errorInfo);
   }
 
   private handleReload = () => {
-    this.setState({ hasError: false, error: undefined });
+    (this as any).setState({ hasError: false, error: undefined });
     window.location.reload();
   };
 
   public render() {
-    if (this.state.hasError) {
+    if ((this as any).state.hasError) {
       return (
         <div className="min-h-screen bg-[#F6FAF7] flex items-center justify-center p-4 selection:bg-[#22C55E] selection:text-white">
           <div className="max-w-md w-full bg-white rounded-3xl shadow-xl border border-[#DDE8E0] p-8 text-center space-y-6">
@@ -39,7 +39,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </div>
             <div className="space-y-2">
               <h2 className="text-xl font-bold text-[#0D3B22]">
-                {this.props.fallbackTitle || 'Não foi possível carregar esta tela.'}
+                {(this as any).props.fallbackTitle || 'Não foi possível carregar esta tela.'}
               </h2>
               <p className="text-xs text-[#68736C] leading-relaxed">
                 Ocorreu um erro inesperado ao exibir este conteúdo. Nossos servidores foram notificados e o problema está sendo investigado.
@@ -58,6 +58,6 @@ export class ErrorBoundary extends Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    return (this as any).props.children;
   }
 }

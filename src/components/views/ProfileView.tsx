@@ -34,6 +34,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     addCategory,
     auditLogs,
     resetDemoData,
+    zeroAllValues,
     logout,
     updateProfile,
   } = useFinance();
@@ -382,6 +383,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           {/* Ações de Conta & Logout */}
           <div className="p-4 sm:p-6 bg-white rounded-2xl border border-[#DDE8E0] shadow-xs space-y-3">
             <h3 className="text-sm font-bold text-[#0D3B22]">Ações de Conta</h3>
+
+            <button
+              type="button"
+              onClick={zeroAllValues}
+              className="w-full flex items-center justify-center gap-2 py-2.5 min-h-[44px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-200 transition-colors"
+            >
+              <RotateCcw size={15} />
+              <span>Zerar Todos os Valores</span>
+            </button>
 
             <button
               type="button"

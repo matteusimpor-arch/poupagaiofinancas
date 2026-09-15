@@ -10,9 +10,7 @@ import { MobileNav } from './components/navigation/MobileNav';
 import { MobileDrawer } from './components/navigation/MobileDrawer';
 
 // Autenticação & Onboarding
-import { LoginScreen } from './components/auth/LoginScreen';
-import { RegisterScreen } from './components/auth/RegisterScreen';
-import { ResetPasswordScreen } from './components/auth/ResetPasswordScreen';
+import { WalletAccessScreen } from './components/auth/WalletAccessScreen';
 import { OnboardingModal } from './components/auth/OnboardingModal';
 
 // Telas / Views
@@ -125,30 +123,9 @@ const AppContent: React.FC = () => {
     };
   }, []);
 
-  if (isResetPasswordView) {
-    return (
-      <ResetPasswordScreen
-        userEmail={currentUser?.email}
-        onComplete={() => {
-          if (typeof window !== 'undefined') {
-            window.location.hash = '';
-            if (window.location.pathname.includes('redefinir-senha')) {
-              window.history.replaceState({}, '', '/');
-            }
-          }
-          setIsResetPasswordView(false);
-          setAuthView('login');
-        }}
-      />
-    );
-  }
-
-  // Se o usuário não estiver autenticado, exibe tela de login ou cadastro
+  // Se o usuário não estiver autenticado, exibe a tela de acesso simplificado à carteira
   if (!currentUser) {
-    if (authView === 'login') {
-      return <LoginScreen onSwitchToRegister={() => setAuthView('register')} />;
-    }
-    return <RegisterScreen onSwitchToLogin={() => setAuthView('login')} />;
+    return <WalletAccessScreen />;
   }
 
   // Abertura de modais a partir do QuickAdd

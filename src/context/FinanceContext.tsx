@@ -60,6 +60,7 @@ interface FinanceContextType {
   currentUser: Profile | null;
   isAuthenticated: boolean;
   isOnboarded: boolean;
+  accessWallet: (name: string, email: string) => Promise<boolean>;
   login: (email: string, pass: string, authenticatedUser?: any) => Promise<boolean>;
   loginWithGoogle: () => Promise<boolean>;
   signup: (name: string, email: string, pass: string, phone?: string, authenticatedUser?: any) => Promise<boolean>;
@@ -211,6 +212,7 @@ interface FinanceContextType {
   // Utilitários de Estado
   resetToMockData: () => void;
   resetDemoData: () => void;
+  zeroAllValues: () => void;
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -752,6 +754,47 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.warn('[Supabase Google Auth Exception]', err);
       return false;
     }
+  };
+
+  const accessWallet = async (name: string, email: string): Promise<boolean> => {
+    const cleanName = name.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!cleanName || !normalizedEmail) {
+      showToast('Por favor, informe seu nome e e-mail.', 'error');
+      return false;
+    }
+
+    let profileId = '';
+    const profilesStorageKey = 'poupagaio_all_profiles';
+    const allProfilesRaw = localStorage.getItem(profilesStorageKey);
+    const allProfiles: Record<string, Profile> = allProfilesRaw ? JSON.parse(allProfilesRaw) : {};
+
+    if (allProfiles[normalizedEmail]) {
+      profileId = allProfiles[normalizedEmail].id;
+    } else {
+      profileId = 'prof-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now();
+    }
+
+    const profile: Profile = {
+      id: profileId,
+      email: normalizedEmail,
+      full_name: cleanName,
+      first_name: cleanName.split(' ')[0],
+      last_name: cleanName.split(' ').slice(1).join(' '),
+      phone: '',
+      due_alert_days: 3,
+      created_at: allProfiles[normalizedEmail]?.created_at || new Date().toISOString(),
+    };
+
+    allProfiles[normalizedEmail] = profile;
+    localStorage.setItem(profilesStorageKey, JSON.stringify(allProfiles));
+    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(profile));
+    setCurrentUser(profile);
+    setIsOnboarded(true);
+
+    showToast(`Bem-vindo, ${cleanName}! 🦜`, 'success');
+    return true;
   };
 
   const login = async (email: string, pass: string, authenticatedUser?: any): Promise<boolean> => {
@@ -2101,12 +2144,30 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setShoppingPriceReferences({});
   };
 
+  const zeroAllValues = () => {
+    setTransactions([]);
+    setInstallmentPurchases([]);
+    setInstallments([]);
+    setInvestments([]);
+    setGoals([]);
+    setGoalMovements([]);
+    setWishlist([]);
+    setMonthlyPlans([]);
+    setMonthlyClosings([]);
+    setNotifications([]);
+    setShoppingLists([]);
+    setShoppingItems([]);
+    setShoppingPriceReferences({});
+    showToast('Todos os valores e registros foram zerados com sucesso! 🧹', 'success');
+  };
+
   return (
     <FinanceContext.Provider
       value={{
         currentUser,
         isAuthenticated: Boolean(currentUser),
         isOnboarded,
+        accessWallet,
         login,
         loginWithGoogle,
         signup,
@@ -2201,6 +2262,7 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         resetToMockData,
         resetDemoData: resetToMockData,
+        zeroAllValues,
       }}
     >
       {children}
