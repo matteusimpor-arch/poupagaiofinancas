@@ -44,7 +44,7 @@ const AppContent: React.FC = () => {
   const { currentUser, isOnboarded, selectedMonth } = useFinance();
 
   // Estados de navegação e autenticação
-  const [authView, setAuthView] = useState<'login' | 'register'>('register');
+  const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [isResetPasswordView, setIsResetPasswordView] = useState<boolean>(() => {
     return (
       typeof window !== 'undefined' &&
