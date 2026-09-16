@@ -765,16 +765,10 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return false;
     }
 
-    let profileId = '';
-    const profilesStorageKey = 'poupagaio_all_profiles';
-    const allProfilesRaw = localStorage.getItem(profilesStorageKey);
-    const allProfiles: Record<string, Profile> = allProfilesRaw ? JSON.parse(allProfilesRaw) : {};
-
-    if (allProfiles[normalizedEmail]) {
-      profileId = allProfiles[normalizedEmail].id;
-    } else {
-      profileId = 'prof-' + Math.random().toString(36).substring(2, 11) + '-' + Date.now();
-    }
+    // Stable deterministic profile ID based on normalized email.
+    // This ensures that whether in incognito mode, on another browser, phone, or computer,
+    // entering the exact same email will always resolve to the exact same profile_id and load the same data!
+    const profileId = 'prof-' + normalizedEmail.replace(/[^a-z0-9]/g, '_');
 
     const profile: Profile = {
       id: profileId,
@@ -784,11 +778,9 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       last_name: cleanName.split(' ').slice(1).join(' '),
       phone: '',
       due_alert_days: 3,
-      created_at: allProfiles[normalizedEmail]?.created_at || new Date().toISOString(),
+      created_at: new Date().toISOString(),
     };
 
-    allProfiles[normalizedEmail] = profile;
-    localStorage.setItem(profilesStorageKey, JSON.stringify(allProfiles));
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(profile));
     setCurrentUser(profile);
     setIsOnboarded(true);
@@ -1816,12 +1808,11 @@ export const FinanceProvider: React.FC<{ children: React.ReactNode }> = ({ child
       destination_goal_id: goalId,
       mascot_message: evaluation.mascotMessage,
       closed_by: currentUser?.id,
-      closed_by_user: currentUser || undefined,
       closed_at: new Date().toISOString(),
     };
 
     setMonthlyClosings((prev) => [closing, ...prev.filter((c) => !(c.space_id === currentSpace.id && c.reference_month === selectedMonth))]);
-    saveToFirestore('monthly_closings', closing.id, closing);
+    saveToFirestore('monthly_closings', closing.id, JSON.parse(JSON.stringify(closing)));
     logAudit(`Mês fechado: ${selectedMonth} com classificação ${evaluation.classification}`, 'monthly_closings', closing.id);
     return closing;
   };
